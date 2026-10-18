@@ -1,0 +1,171 @@
+{
+  "gloss": 1,
+  "commit": "2e2d5c0da7996a58c791e796fc4cadec9d87d8f6",
+  "created_at": "2026-10-18T18:17:09.593Z",
+  "annotation": {
+    "version": 1,
+    "task": "Package git-gud for npm on Node 20.16+, bringing its own git-gloss",
+    "summary": "Same build and launcher as git-gloss. package.json becomes publishable (@ok-ggwp/git-gud, Node 20.16+, public, built on pack) and depends on @ok-ggwp/git-gloss, which the honesty and improve stages now run directly, falling back to `git gloss` on PATH in a checkout. The README describes installing from npm.",
+    "groups": [
+      {
+        "id": "build",
+        "intent": "Compile src/ to dist/ for Node 20",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "the package couldn't run from node_modules or on Node 20",
+        "evidence": "Both tarballs installed into a project under Node 20.20.2; git-gud review --dry-run built the honesty and improve prompts",
+        "hunks": [
+          "h6",
+          "h9"
+        ]
+      },
+      {
+        "id": "launcher",
+        "intent": "Run the source in a checkout on a TypeScript-capable Node, dist/ otherwise",
+        "necessity": "supporting",
+        "serves": "build",
+        "removal_impact": "either the package would point at source it doesn't ship, or development would need a rebuild after every edit",
+        "hunks": [
+          "h4"
+        ],
+        "notes": "A checkout on an older Node with no build gets a message saying to run npm run build."
+      },
+      {
+        "id": "bundled-gloss",
+        "intent": "Run the git-gloss git-gud depends on; fall back to git gloss on PATH",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "installing git-gud alone would leave the honesty and improve stages failing unless the user also installed git-gloss globally, and a global git-gloss of another version could be picked up",
+        "evidence": "In the project install, the dry run built both prompts through the bundled copy",
+        "hunks": [
+          "h7",
+          "h8"
+        ],
+        "notes": "Resolves @ok-ggwp/git-gloss/package.json (the package has no exports map, so it's resolvable) and runs its bin with the same Node. The 'not found' message now says how to get it. Only a missing package (MODULE_NOT_FOUND) falls back to PATH; any other resolution error is raised, so a broken install isn't silently replaced by a different git-gloss (the reviews found the bare catch hid it)."
+      },
+      {
+        "id": "package-meta",
+        "intent": "Publishable package.json: engines, files, build on pack, git-gloss dependency",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "the package couldn't be published, or would install without git-gloss",
+        "evidence": "npm pack: 12 files, 19.6 kB",
+        "hunks": [
+          "h5",
+          "h1"
+        ],
+        "notes": "Node >=20.16 because parseArgs' allowNegative (--no-sandbox and friends) arrived in 20.16; checked working on 20.20. The dependency can't be installed from npm until git-gloss is published, so package-lock.json is left as it was and needs `npm install` after publishing. Builds on prepare rather than prepack, so git-URL installs get dist/ too."
+      },
+      {
+        "id": "docs",
+        "intent": "README: install both from npm, set a permission mode; stages use the bundled git-gloss",
+        "necessity": "supporting",
+        "serves": "package-meta",
+        "removal_impact": "readers would still be told to npm link a clone",
+        "hunks": [
+          "h2",
+          "h3"
+        ]
+      }
+    ],
+    "risks": [
+      "package-lock.json is out of date until git-gloss is published and npm install is run",
+      "Windows is untested",
+      "git-gud's bundled git-gloss and a separately installed one can differ in version",
+      "Until git-gloss is published, npm install of git-gud (and the README's install line) fails with a 404",
+      "wip reviews still need git-gloss installed: the snapshot comes from git gloss hunks wip"
+    ]
+  },
+  "hunks": [
+    {
+      "id": "h1",
+      "file": ".gitignore",
+      "oldFile": ".gitignore",
+      "oldStart": 1,
+      "oldLines": 1,
+      "newStart": 1,
+      "newLines": 2,
+      "hash": "dcd18cdc1f3fac8d"
+    },
+    {
+      "id": "h2",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 27,
+      "oldLines": 7,
+      "newStart": 27,
+      "newLines": 7,
+      "hash": "5834f1b3e5253f4d"
+    },
+    {
+      "id": "h3",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 85,
+      "oldLines": 14,
+      "newStart": 85,
+      "newLines": 17,
+      "hash": "24c81938f06952f9"
+    },
+    {
+      "id": "h4",
+      "file": "bin/git-gud.js",
+      "oldFile": "bin/git-gud.js",
+      "oldStart": 1,
+      "oldLines": 4,
+      "newStart": 1,
+      "newLines": 15,
+      "hash": "7f06301d42a631ab"
+    },
+    {
+      "id": "h5",
+      "file": "package.json",
+      "oldFile": "package.json",
+      "oldStart": 3,
+      "oldLines": 17,
+      "newStart": 3,
+      "newLines": 48,
+      "hash": "ec43540513b8d8f2"
+    },
+    {
+      "id": "h6",
+      "file": "scripts/build.mjs",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 11,
+      "hash": "d340d798563de515"
+    },
+    {
+      "id": "h7",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 1,
+      "oldLines": 4,
+      "newStart": 1,
+      "newLines": 6,
+      "hash": "81e1dd623b963d7e"
+    },
+    {
+      "id": "h8",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 16,
+      "oldLines": 14,
+      "newStart": 18,
+      "newLines": 28,
+      "hash": "5f724e15e752b678"
+    },
+    {
+      "id": "h9",
+      "file": "tsconfig.build.json",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 12,
+      "hash": "c6eccf4aa98d60ad"
+    }
+  ]
+}
