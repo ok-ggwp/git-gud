@@ -2,6 +2,7 @@
   "name": "@ok-ggwp/git-gud",
   "version": "0.1.0",
   "description": "Review changes with coding agents in sandboxed clones: bugs, gloss honesty and improvements",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "git-gud": "bin/git-gud.js"

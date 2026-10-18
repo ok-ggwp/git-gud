@@ -92,3 +92,7 @@ npm install
 npm link        # puts git-gud on PATH, so `git gud` works
 npm test
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
