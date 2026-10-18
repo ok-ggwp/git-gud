@@ -1,10 +1,10 @@
 import { parseArgs } from 'node:util'
 import { git, gitTry, GudError, resolveTarget, type Target } from '../git.ts'
 import { directText, parseAgent, resolveBin, runAgent, spec as specFor, which, type Access, type Agent } from '../agents.ts'
-import { fenced, NoGloss, STAGES, stagePrompt, type Stage } from '../stages.ts'
+import { fenced, gloss, NoGloss, STAGES, stagePrompt, type Stage } from '../stages.ts'
 import { createWorkspace, type Workspace } from '../workspace.ts'
 
-export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--browser] [--sandbox [--network | --allow-domain <d>]...] [--dry-run] [--keep]   review a change with coding agents, each in a disposable clone'
+export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--browser] [--sandbox [--network | --allow-domain <d>]...] [--no-record] [--dry-run] [--keep]   review a change with coding agents, each in a disposable clone'
 
 function preamble(agent: Agent, ws: Workspace, t: Target, access: Access): string {
   const what = t.kind === 'wip'
@@ -41,6 +41,7 @@ export async function run(argv: string[]): Promise<number> {
       network: { type: 'boolean' },
       'allow-domain': { type: 'string', multiple: true },
       browser: { type: 'boolean' },
+      record: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       keep: { type: 'boolean' },
     },
@@ -88,6 +89,23 @@ export async function run(argv: string[]): Promise<number> {
     }
   }
   if (!prompts.length) throw new GudError('nothing to review')
+
+  // What the reviewers are about to see, so each finished review can be
+  // recorded beside the glosses (git gloss reviews), saying what it covered.
+  // --no-record skips it; a git-gloss without reviews only loses the record.
+  // The stamp names the exact commits the clones are built from, so a branch
+  // that moves meanwhile can't change what the record says was reviewed.
+  let stamp: unknown = null
+  if (values.record !== false && !values['dry-run']) {
+    const exact = target.kind === 'range' ? `${target.base}..${target.sha}` : target.sha
+    try {
+      stamp = JSON.parse(gloss(['reviews', '--stamp', exact], repo))
+    } catch (err) {
+      // Recording is optional: any failure here costs only the record.
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`note: reviews won't be recorded: ${/unknown command/.test(msg) ? 'this git-gloss is too old to record them' : msg}`)
+    }
+  }
   // A dry run shows the setup even for agents that aren't installed.
   const bins = new Map(agents.map(({ agent }) => [agent.name, values['dry-run'] ? which(agent.command) : resolveBin(agent)]))
 
@@ -132,6 +150,17 @@ export async function run(argv: string[]): Promise<number> {
       const spec = specFor(r.agent, bins.get(r.agent.name)!, ws, r.model, access)
       const res = await runAgent(spec, ws, `${preamble(r.agent, ws, target, access)}\n\n${r.prompt}`)
       console.error(`${label(r)}: ${res.ok ? 'done' : 'failed'} after ${Math.round((Date.now() - started) / 1000)}s`)
+      if (res.ok && res.output && stamp) {
+        try {
+          gloss(['reviews', '--record'], repo, JSON.stringify({
+            stage: r.stage, agent: r.agent.name, model: r.model, mode: access.sandbox ? 'sandboxed' : 'direct',
+            target: target.rev, findings: res.output, stamp,
+          }))
+        } catch (err) {
+          if (!(err instanceof GudError)) throw err
+          console.error(`${label(r)}: recording the review failed: ${err.message}`)
+        }
+      }
       return { r, ...res }
     } catch (err) {
       // Any error fails this run only, so the other reviews are still reported.

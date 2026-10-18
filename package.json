@@ -1,6 +1,6 @@
 {
   "name": "@ok-ggwp/git-gud",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Review changes with coding agents in sandboxed clones: bugs, gloss honesty and improvements",
   "license": "MIT",
   "keywords": [
@@ -43,7 +43,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@ok-ggwp/git-gloss": "^0.1.0"
+    "@ok-ggwp/git-gloss": "^0.2.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

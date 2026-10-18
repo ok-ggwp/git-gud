@@ -347,3 +347,21 @@ test('git config gud.sandbox makes sandboxed reviews the default; --no-sandbox o
   assert.match(gud(dir, ['review', '--dry-run', '--stage', 'bugs', '--no-sandbox'], env).out, /mode: direct/)
   assert.match(gud(dir, ['review', '--dry-run', '--stage', 'bugs', '--no-sandbox', '--network'], env).err, /apply to sandboxed reviews/)
 })
+
+test('a finished review is recorded beside the glosses, with its verdict; --no-record skips it', { skip: !hasGloss && 'needs git-gloss' }, () => {
+  if (spawnSync('git', ['gloss', 'reviews', '--stamp', 'HEAD'], { cwd: repo() }).status !== 0) return // a git-gloss without reviews
+  const dir = repo({ glossed: true })
+  // A stand-in reviewer: reads the prompt, answers with a report.
+  const bin = realpathSync(mkdtempSync(join(tmpdir(), 'gud-bin-')))
+  writeFileSync(join(bin, 'claude'), '#!/bin/sh\ncat >/dev/null\nprintf "The gloss matches the code.\\n\\nVERDICT: CLEAN\\n"\n', { mode: 0o755 })
+  const env = { PATH: `${bin}:${process.env.PATH}` }
+  let r = gud(dir, ['review', '--stage', 'honesty', '--no-record'], env)
+  assert.equal(r.code, 0, r.err)
+  assert.match(r.out, /The gloss matches the code\./)
+  assert.match(execFileSync('git', ['gloss', 'reviews'], { cwd: dir, encoding: 'utf8' }), /no reviews recorded/)
+  r = gud(dir, ['review', '--stage', 'honesty'], env)
+  assert.equal(r.code, 0, r.err)
+  const show = execFileSync('git', ['gloss', 'show'], { cwd: dir, encoding: 'utf8' })
+  assert.match(show, /honesty: no issues \(claude, /)
+  assert.match(execFileSync('git', ['gloss', 'reviews'], { cwd: dir, encoding: 'utf8' }), /honesty by claude \(direct\)[\s\S]*The gloss matches the code\./)
+})

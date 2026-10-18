@@ -31,11 +31,11 @@ function glossCommand(): [string, string[]] {
   }
 }
 
-// Runs git-gloss for the honesty and improve stages.
-function gloss(args: string[], repo: string): string {
+// Runs git-gloss: for the honesty and improve stages, and to record reviews.
+export function gloss(args: string[], repo: string, input?: string): string {
   const [cmd, base] = glossCommand()
   try {
-    return execFileSync(cmd, [...base, ...args], { cwd: repo, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] })
+    return execFileSync(cmd, [...base, ...args], { cwd: repo, encoding: 'utf8', input, maxBuffer: 256 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] })
   } catch (err) {
     const e = err as { status?: number; stderr?: string }
     const msg = e.stderr?.trim() ?? ''
@@ -73,6 +73,8 @@ Do not report style, naming or simplifications; other reviews cover those.
 
 For each defect give: where (file and line), a concrete scenario (inputs or state, then the wrong outcome), and severity (major or minor). Put the most serious first. If you find nothing serious, say so; don't pad the list.
 
+End your report with one line on its own: \`VERDICT: CLEAN\` if you found no defects worth fixing, otherwise \`VERDICT: ISSUES\`. It is recorded with the review.
+
 ---
 
 # Material under review
@@ -104,6 +106,8 @@ Look for:
 Bugs and whether the gloss is honest are covered by other reviews; leave them out.
 
 Give at most ${max} suggestions, ranked by benefit for the effort. For each: where (group id, or file and line), the suggestion, why it is better, roughly how big the change is, and whether you checked it (for example, applied it in the clone and the tests still pass). Fewer, stronger suggestions beat a long list; if the change is already lean, say so and stop.
+
+End your report with one line on its own: \`VERDICT: CLEAN\` if the change is already lean and nothing is worth changing, otherwise \`VERDICT: ISSUES\`. It is recorded with the review.
 
 ---
 

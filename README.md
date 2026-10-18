@@ -12,6 +12,7 @@ git gud review [<commit>|<range>|wip]   review HEAD, a branch (main..feature) or
       --sandbox | --no-sandbox          confine reviewers, for code you don't trust (default: gud.sandbox)
       --network | --no-network          ...and let their commands use the network (default: gud.network)
       --allow-domain <domain>           ...or only these domains (Claude), e.g. registry.npmjs.org
+      --no-record                       don't record the reviews beside the glosses
       --dry-run                         print each run's setup and prompt; run no agent (none need be installed)
       --keep                            keep the workspace directories, for inspection
 git gud agents                          which reviewers are installed and logged in, and how each runs
@@ -29,7 +30,7 @@ The split comes from a small experiment (five commits with 20 known defects, rev
 
 `honesty` needs a gloss and is skipped without one; `improve` falls back to the commit message and diff. Both use the git-gloss that comes with git-gud. `wip` reviews git-gloss's snapshot of uncommitted work, which `git gloss hunks wip` takes, so that needs git-gloss installed too.
 
-Each run gets its own disposable clone, and the runs go in parallel. Results are printed as markdown, one section per stage and agent; progress goes to stderr:
+Each run gets its own disposable clone, and the runs go in parallel. Results are printed as markdown, one section per stage and agent; progress goes to stderr. Each finished review is also recorded beside the glosses (`--no-record` skips it), with what it saw and its verdict, so `git gloss show`, `git gloss reviews` and the HTML view can tell a later reader that a commit's gloss was checked and what was found; `git gloss sync` and pushes share the records with the team.
 
 ```sh
 git gud review main..feature --agent claude --agent cursor > review.md
