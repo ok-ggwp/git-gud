@@ -1,0 +1,20 @@
+{
+  "name": "@ok-ggwp/git-gud",
+  "version": "0.1.0",
+  "description": "Review changes with coding agents in sandboxed clones: bugs, gloss honesty and improvements",
+  "type": "module",
+  "bin": {
+    "git-gud": "bin/git-gud.js"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
+  "scripts": {
+    "test": "node --test 'test/**/*.test.ts'",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}
