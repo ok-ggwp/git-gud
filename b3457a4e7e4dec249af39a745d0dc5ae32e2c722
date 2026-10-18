@@ -1,0 +1,351 @@
+{
+  "gloss": 3,
+  "commit": "b3457a4e7e4dec249af39a745d0dc5ae32e2c722",
+  "created_at": "2026-10-18T15:44:43.044Z",
+  "annotation": {
+    "version": 1,
+    "task": "Create git-gud: run agent reviews of a change in sandboxed clones, in three stages (blind bugs, gloss honesty, gloss-informed improvements), with Claude, Codex or Cursor as reviewer",
+    "summary": "`git gud review [<commit>|<range>|wip]` builds one prompt per stage, makes a disposable clone per stage and agent (blind clones get no glosses, agent config is stripped), runs the agents in parallel and prints one markdown section each. Claude runs in its own OS sandbox, as the old git-gloss script did. Codex and Cursor run inside git-gud's own bubblewrap sandbox, probed before every run, because Cursor's own sandbox confined nothing in testing. `git gud agents` reports what's installed, logged in, and whether the probe passes.",
+    "groups": [
+      {
+        "id": "stages",
+        "intent": "Build the bugs, honesty and improve prompts",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "there would be nothing to send the reviewers; the stage split the user asked for wouldn't exist",
+        "hunks": [
+          "h13"
+        ],
+        "notes": "bugs: commit message(s) and pinned diff only, no gloss; the message is the author's own statement, so the stage is blind to the gloss, not to intent. honesty: git-gloss's own review prompt, unchanged. improve: git gloss review --material plus git-gud's instructions (framing the material as untrusted), capped by --max; falls back to the diff without a gloss. A missing gloss skips honesty with a note."
+      },
+      {
+        "id": "workspace",
+        "intent": "Make a fresh repo per run holding only the target's history, agent config removed",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "reviewers would run in the real repository, could be instructed by the reviewed change's CLAUDE.md/AGENTS.md/.cursor, and the blind stage would see glosses",
+        "evidence": "Tests: the blind clone holds no note blob and no later commit (checked with cat-file --batch-all-objects; the test fails against the old git clone), nested config is found, a range's base is present.",
+        "hunks": [
+          "h14"
+        ],
+        "notes": "The repo is created with git init (no templates, so no hooks) and receives the target, and a range's base, by push, so it has only history reachable from them: no later commits, other branches or, for the blind stage, note objects. A plain local clone copied every object, which leaked the gloss into the blind clone (found by git-gud's own bugs review). Agent config (CLAUDE.md, AGENTS.md, .claude, .cursor, .codex, GEMINI.md, copilot instructions, ...) is removed at any depth, since agents read nested files."
+      },
+      {
+        "id": "agents",
+        "intent": "Adapters that run Claude, Codex or Cursor on a prompt in a workspace",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "no reviewer could be run; the pluggable-reviewer part of the task would be missing",
+        "evidence": "Claude settings are the old script's. Cursor ran live inside the sandbox (home showed only its own state; a write to /var/tmp failed). runAgent's stdin, output-file and failure handling are unit-tested.",
+        "hunks": [
+          "h7"
+        ],
+        "notes": "Codex is wired up but has not run live: it isn't logged in on this machine. Its flags come from codex exec --help (0.149.1)."
+      },
+      {
+        "id": "outer-sandbox",
+        "intent": "A bubblewrap sandbox for Codex and Cursor, probed before each run",
+        "necessity": "required",
+        "serves": "agents",
+        "removal_impact": "Codex and Cursor reviewers would run with full access to the home directory and filesystem: Cursor's --sandbox enabled read ~, wrote /var/tmp and reached the network in testing",
+        "evidence": "Tested: home shows nothing but the binds inside, a write to /var/tmp fails, SSH_AUTH_SOCK is cleared, the workspace is writable, and a sandbox that lets writes out is refused. The probe runs in tests and in `git gud agents`.",
+        "hunks": [
+          "h12"
+        ],
+        "notes": "Graded required rather than defensive because running code-executing reviewers unconfined isn't an option for this task: Cursor's own sandbox confined nothing here. The network stays open because the agent needs it; the agent's login is readable inside. Both are in the README's 'Not covered'."
+      },
+      {
+        "id": "review-cmd",
+        "intent": "`git gud review`: options, prompts first, parallel runs, markdown output",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "the stages, workspaces and agents couldn't be run from the command line",
+        "hunks": [
+          "h10:1-82,91-92,94-108,110-120"
+        ],
+        "notes": "Agents are resolved after the prompts are built, and a dry run doesn't need them installed, so a missing gloss is reported first and --dry-run works anywhere. Any error in one run fails only that run, so the others' results are still printed. Includes --dry-run (prints each run's setup, command and prompt; used by the tests) and --keep (leaves sandboxes for inspection), both small debugging aids."
+      },
+      {
+        "id": "interrupt-cleanup",
+        "intent": "Remove live sandboxes on Ctrl-C or SIGTERM",
+        "necessity": "defensive",
+        "serves": "review-cmd",
+        "removal_impact": "an interrupted review would leave clones (with copied node_modules) in the temp directory",
+        "hunks": [
+          "h10:83-90,93,109"
+        ],
+        "notes": "Untested."
+      },
+      {
+        "id": "agents-cmd",
+        "intent": "`git gud agents`: installed, logged in, sandbox summary and probe per agent",
+        "necessity": "supporting",
+        "serves": "agents",
+        "removal_impact": "users would find a missing login or a broken sandbox only when a review fails",
+        "hunks": [
+          "h9"
+        ]
+      },
+      {
+        "id": "git-helpers",
+        "intent": "Resolve commits, ranges and wip; produce diffs with pinned options",
+        "necessity": "supporting",
+        "serves": [
+          "stages",
+          "workspace"
+        ],
+        "removal_impact": "stages and workspaces couldn't find what to review; diffs would follow the user's diff config",
+        "hunks": [
+          "h11"
+        ],
+        "notes": "A...B is rejected, as in git-gloss. wip uses git show, so a snapshot with no parent (before the first commit) works; tested."
+      },
+      {
+        "id": "cli",
+        "intent": "Entry point and command dispatch, in git-gloss's style",
+        "necessity": "supporting",
+        "serves": "review-cmd",
+        "removal_impact": "`git gud` wouldn't run",
+        "hunks": [
+          "h4",
+          "h8"
+        ]
+      },
+      {
+        "id": "tests",
+        "intent": "Tests for targets, workspaces, prompts, the sandbox, runAgent and dry runs",
+        "necessity": "supporting",
+        "serves": [
+          "stages",
+          "workspace",
+          "outer-sandbox",
+          "review-cmd"
+        ],
+        "removal_impact": "a regression that leaks glosses into the blind clone, keeps agent config, or weakens the sandbox would go unnoticed",
+        "hunks": [
+          "h15"
+        ]
+      },
+      {
+        "id": "docs",
+        "intent": "README: stages, sandboxing, and what the sandbox doesn't cover",
+        "necessity": "supporting",
+        "serves": [
+          "review-cmd",
+          "outer-sandbox"
+        ],
+        "removal_impact": "users wouldn't know the Codex/Cursor reviewers have network access, and agents working here wouldn't wip-gloss",
+        "hunks": [
+          "h3"
+        ]
+      },
+      {
+        "id": "packaging",
+        "intent": "package.json (@ok-ggwp/git-gud), lockfile, tsconfig, .gitignore",
+        "necessity": "mechanical",
+        "serves": "task",
+        "removal_impact": "npm link, npm test and tsc wouldn't work",
+        "hunks": [
+          "h1",
+          "h5",
+          "h6",
+          "h16"
+        ]
+      },
+      {
+        "id": "wip-gloss-instructions",
+        "intent": "CLAUDE.md asking agents working here to wip-gloss their changes",
+        "necessity": "incidental",
+        "serves": "task",
+        "removal_impact": "agents working on git-gud wouldn't be told to wip-gloss; git-gud itself is unaffected",
+        "hunks": [
+          "h2"
+        ],
+        "notes": "The same line as git-gloss's CLAUDE.md, which the user asked for there; added here to match, not requested for this repo."
+      }
+    ],
+    "alternatives": [
+      {
+        "option": "Trust Codex's and Cursor's own sandboxes",
+        "rejected_because": "Cursor's confined nothing in testing on this machine, and nesting their sandbox inside ours failed to start"
+      },
+      {
+        "option": "Run all stages in one clone, one after another",
+        "rejected_because": "one reviewer's scratch edits could mislead the next, and the blind clone must not contain glosses"
+      },
+      {
+        "option": "Store results in a notes ref and show them beside glosses",
+        "rejected_because": "deferred: printing markdown is enough to try the stages out first"
+      }
+    ],
+    "risks": [
+      "Codex and Cursor reviewers have network access, and their login is readable inside the sandbox; a reviewer misled by the change could send data out",
+      "The Codex adapter hasn't run against a live login",
+      "Runs go in parallel: three stages with two agents is six agent sessions at once, which costs accordingly",
+      "Like git-gloss, it runs TypeScript directly, so publishing to npm will need a build step",
+      "The honesty and improve prompts use the git-gloss on PATH, not the reviewed commit's own copy, which matters when reviewing git-gloss itself"
+    ]
+  },
+  "hunks": [
+    {
+      "id": "h1",
+      "file": ".gitignore",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 1,
+      "hash": "2fa3458a6eba324a"
+    },
+    {
+      "id": "h2",
+      "file": "CLAUDE.md",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 4,
+      "hash": "054041c37d1947f0"
+    },
+    {
+      "id": "h3",
+      "file": "README.md",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 54,
+      "hash": "ed7f4dc6c633557b"
+    },
+    {
+      "id": "h4",
+      "file": "bin/git-gud.js",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 4,
+      "hash": "6e0f5c6406546a44"
+    },
+    {
+      "id": "h5",
+      "file": "package-lock.json",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 414,
+      "hash": "c698a87ab23bee09"
+    },
+    {
+      "id": "h6",
+      "file": "package.json",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 20,
+      "hash": "f5ea8e91d96fc763"
+    },
+    {
+      "id": "h7",
+      "file": "src/agents.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 157,
+      "hash": "aa564d9c6527ccd2"
+    },
+    {
+      "id": "h8",
+      "file": "src/cli.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 37,
+      "hash": "ed6aede51cf9eeaf"
+    },
+    {
+      "id": "h9",
+      "file": "src/commands/agents.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 35,
+      "hash": "8157edac6d35ca2d"
+    },
+    {
+      "id": "h10",
+      "file": "src/commands/review.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 120,
+      "hash": "b676a1026e4d61aa"
+    },
+    {
+      "id": "h11",
+      "file": "src/git.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 68,
+      "hash": "9e309f0bfa459984"
+    },
+    {
+      "id": "h12",
+      "file": "src/sandbox.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 57,
+      "hash": "b4fb862c2d5efd87"
+    },
+    {
+      "id": "h13",
+      "file": "src/stages.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 104,
+      "hash": "b708baa8c77f628d"
+    },
+    {
+      "id": "h14",
+      "file": "src/workspace.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 72,
+      "hash": "3cd3ac7ca06e4ea5"
+    },
+    {
+      "id": "h15",
+      "file": "test/gud.test.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 257,
+      "hash": "7b0b5036695a7f24"
+    },
+    {
+      "id": "h16",
+      "file": "tsconfig.json",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 15,
+      "hash": "0f82740114db8d70"
+    }
+  ]
+}
