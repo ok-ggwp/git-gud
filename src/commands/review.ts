@@ -1,21 +1,29 @@
 import { parseArgs } from 'node:util'
 import { git, gitTry, GudError, resolveTarget, type Target } from '../git.ts'
-import { parseAgent, resolveBin, runAgent, which, type Access, type Agent } from '../agents.ts'
+import { directText, parseAgent, resolveBin, runAgent, spec as specFor, which, type Access, type Agent } from '../agents.ts'
 import { fenced, NoGloss, STAGES, stagePrompt, type Stage } from '../stages.ts'
 import { createWorkspace, type Workspace } from '../workspace.ts'
 
-export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--network | --allow-domain <d>]... [--browser] [--dry-run] [--keep]   review a change with coding agents in sandboxed clones'
+export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--browser] [--sandbox [--network | --allow-domain <d>]...] [--dry-run] [--keep]   review a change with coding agents, each in a disposable clone'
 
 function preamble(agent: Agent, ws: Workspace, t: Target, access: Access): string {
   const what = t.kind === 'wip'
     ? 'a snapshot commit of the author\'s uncommitted work (HEAD is that snapshot; the changes are not committed in the real repository)'
     : t.kind === 'range' ? `the tip of the branch under review (${t.rev})` : 'the commit under review'
-  return `You are running in a sandbox directory ${ws.dir} containing a disposable clone of the repository at ${ws.clone},
-checked out at ${what}. ${agent.confinement(ws, access)} Create scratch tests and throwaway git repos under ${ws.scratch}
-and run them. To run the code under review, use the clone's own entry points, build and tests, not any globally installed copy.${ws.removed.length ? `
+  const where = access.sandbox
+    ? `You are running in a sandbox directory ${ws.dir} containing a disposable clone of the repository at ${ws.clone},
+checked out at ${what}. ${agent.confinement(ws, access)}`
+    : `The clone is checked out at ${what}. ${directText(ws, access)}`
+  const config = [
+    ws.removed.length ? (access.sandbox
+      ? `All agent configuration files, the project's and the change's, were removed from the checkout so they could not configure you: ${ws.removed.join(' ')}.`
+      : `The reviewed change added these agent configuration files; they were removed from the checkout so the change can't instruct its reviewer: ${ws.removed.join(' ')}.`) : '',
+    ws.restored.length ? `The reviewed change edited these agent configuration files; they are restored to how they were before the change, so the change can't instruct its reviewer: ${ws.restored.join(' ')}.` : '',
+  ].filter(Boolean)
+  return `${where} Create scratch tests and throwaway git repos under ${ws.scratch}
+and run them. To run the code under review, use the clone's own entry points, build and tests, not any globally installed copy.${config.length ? `
 
-These agent configuration files from the reviewed change were removed from the checkout so they could not configure you;
-read them with git show HEAD:<path> if they matter to the review: ${ws.removed.join(' ')}` : ''}
+${config.join(' ')} Read the change's versions with git show HEAD:<path> if they matter to the review.` : ''}
 
 Verify findings by running them where you can. In your report, mark each finding as **verified** (you ran something
 that shows it) or **read** (from reading the code only).`
@@ -29,13 +37,14 @@ export async function run(argv: string[]): Promise<number> {
       stage: { type: 'string' },
       agent: { type: 'string', multiple: true },
       max: { type: 'string' },
+      sandbox: { type: 'boolean' },
       network: { type: 'boolean' },
       'allow-domain': { type: 'string', multiple: true },
       browser: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       keep: { type: 'boolean' },
     },
-    // --no-network and --no-browser override the git config defaults.
+    // --no-sandbox, --no-network and --no-browser override the git config defaults.
     allowNegative: true,
   })
   const stages = (values.stage ?? STAGES.join(',')).split(',').map((s) => s.trim()).filter(Boolean)
@@ -44,17 +53,22 @@ export async function run(argv: string[]): Promise<number> {
   const max = Number(values.max ?? 5)
   if (!Number.isInteger(max) || max < 1) throw new GudError('--max takes a positive whole number')
 
-  // Defaults from git config (gud.network, gud.browser), so someone who always
-  // wants them sets them once; flags override for one run.
+  // Defaults from git config (gud.sandbox, gud.network, gud.browser), so
+  // someone who always wants them sets them once; flags override for one run.
   const setting = (key: string) => gitTry(['config', '--type=bool', '--get', key])?.trim() === 'true'
   const access: Access = {
+    sandbox: values.sandbox ?? setting('gud.sandbox'),
     network: values.network ?? setting('gud.network'),
     domains: values['allow-domain'] ?? [],
     browser: values.browser ?? setting('gud.browser'),
   }
+  // Never silent about running unconfined.
+  if (!access.sandbox) console.error('note: reviewers run with your own agent settings and permissions; for code you don\'t trust, add --sandbox')
 
   // Say when an access choice has no effect, rather than ignore it.
-  if (access.domains.length && access.network) console.error('note: --allow-domain has no effect with the network fully open (--network or gud.network)')
+  if (!access.sandbox && (values.network !== undefined || access.domains.length)) {
+    console.error('note: --network and --allow-domain apply to sandboxed reviews (--sandbox); without it, reviewers have the network your own sessions have')
+  } else if (access.domains.length && access.network) console.error('note: --allow-domain has no effect with the network fully open (--network or gud.network)')
   else if (access.domains.length && agents.some(({ agent }) => agent.name !== 'claude')) {
     console.error('note: --allow-domain applies to Claude reviewers only; Codex and Cursor reach their model through an open network and are asked not to use it')
   }
@@ -82,14 +96,15 @@ export async function run(argv: string[]): Promise<number> {
 
   if (values['dry-run']) {
     for (const r of runs) {
-      const ws = createWorkspace(repo, target, r.stage !== 'bugs')
+      const ws = createWorkspace(repo, target, r.stage !== 'bugs', access.sandbox)
       try {
         const bin = bins.get(r.agent.name)
-        const spec = bin ? r.agent.spec(bin, ws, r.model, access) : null
+        const spec = bin ? specFor(r.agent, bin, ws, r.model, access) : null
         console.log(`===== ${label(r)} =====\n\nworkspace: ${ws.dir}\nhead: ${git(['rev-parse', 'HEAD'], { cwd: ws.clone }).trim()}\n` +
           `remotes: ${git(['remote'], { cwd: ws.clone }).trim().split('\n').filter(Boolean).length}\n` +
           `glosses: ${git(['for-each-ref', '--format=%(refname)', 'refs/notes/'], { cwd: ws.clone }).trim() || 'none'}\n` +
-          `removed: ${ws.removed.join(' ') || 'none'}\ncommand: ${spec ? `${spec.cmd} ${spec.args.map((a) => JSON.stringify(a)).join(' ')}` : `(${r.agent.command} is not on PATH)`}\n\n` +
+          `removed: ${ws.removed.join(' ') || 'none'}\nrestored: ${ws.restored.join(' ') || 'none'}\n` +
+          `mode: ${access.sandbox ? 'sandboxed' : 'direct'}${spec ? `\ncwd: ${spec.cwd}` : ''}\ncommand: ${spec ? `${spec.cmd} ${spec.args.map((a) => JSON.stringify(a)).join(' ')}` : `(${r.agent.command} is not on PATH)`}\n\n` +
           `${preamble(r.agent, ws, target, access)}\n\n${r.prompt}\n`)
       } finally {
         if (!values.keep) ws.dispose()
@@ -109,12 +124,12 @@ export async function run(argv: string[]): Promise<number> {
   process.once('SIGINT', interrupted)
   process.once('SIGTERM', interrupted)
   const results = await Promise.all(runs.map(async (r) => {
-    const ws = createWorkspace(repo, target, r.stage !== 'bugs')
+    const ws = createWorkspace(repo, target, r.stage !== 'bugs', access.sandbox)
     live.add(ws)
     const started = Date.now()
     console.error(`${label(r)}: started`)
     try {
-      const spec = r.agent.spec(bins.get(r.agent.name)!, ws, r.model, access)
+      const spec = specFor(r.agent, bins.get(r.agent.name)!, ws, r.model, access)
       const res = await runAgent(spec, ws, `${preamble(r.agent, ws, target, access)}\n\n${r.prompt}`)
       console.error(`${label(r)}: ${res.ok ? 'done' : 'failed'} after ${Math.round((Date.now() - started) / 1000)}s`)
       return { r, ...res }

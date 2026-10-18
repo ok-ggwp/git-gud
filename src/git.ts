@@ -1,5 +1,8 @@
 import { execFileSync } from 'node:child_process'
 
+// git's empty tree: the base to diff against when there is no parent commit.
+export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
 // git-gloss keeps its snapshot of uncommitted work here (one per worktree).
 export const WIP_REF = 'refs/worktree/gloss/wip'
 
