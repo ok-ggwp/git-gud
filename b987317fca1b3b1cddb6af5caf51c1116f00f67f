@@ -1,0 +1,434 @@
+{
+  "gloss": 3,
+  "commit": "b987317fca1b3b1cddb6af5caf51c1116f00f67f",
+  "created_at": "2026-10-18T17:58:59.713Z",
+  "annotation": {
+    "version": 1,
+    "task": "Run reviewers like the user's own agent sessions by default (no sandbox, their normal settings and permissions), keeping the sandbox as an option for untrusted code; works toward native Windows support",
+    "summary": "Each agent gets a direct run, now the default: in its disposable clone, with the user's own settings plus extra arguments from gud.<agent>.args (such as a permission mode). --sandbox (or gud.sandbox) keeps the existing confined runs. Instead of deleting all agent configuration, a direct review restores the files the change edited to their pre-change versions and removes ones it added, so the reviewer gets the project's usual instructions but not the change's. Commands are found and launched the Windows way (PATHEXT, .cmd through the shell), untested on Windows.",
+    "groups": [
+      {
+        "id": "direct-runs",
+        "intent": "A direct run for each agent: the clone, the user's settings, gud.<agent>.args",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "every review would stay sandboxed, more restricted than the user's own agent sessions, and impossible on native Windows",
+        "evidence": "Live, on the planted-bug fixture: a direct Claude review with no extra arguments was refused 'node' (requires approval) and could only read the code; with gud.claude.args = '--permission-mode auto' it ran the code, verified the floor bug and found a second verified one in 14 s.",
+        "hunks": [
+          "h4",
+          "h5:1-33,37-38",
+          "h6:1-11,14-17",
+          "h7",
+          "h8",
+          "h9",
+          "h10",
+          "h11",
+          "h12:1,7"
+        ],
+        "notes": "Direct runs start in the clone so the project's own agent settings and instructions load. Each gets the scratch directory with --add-dir, since scratch tests live beside the clone (a stricter permission mode or Codex's workspace-write sandbox would otherwise refuse writes there). Codex and Cursor direct runs weren't run live; Codex isn't logged in here. RunSpec gains cwd, since the two kinds of run start in different places. gud.<agent>.args is read by directArgs in agents.ts, used by both review and `git gud agents`. The browser guidance (CHECK_PAGES) is shared by the direct and sandboxed prompts. The direct prompt says the user's real repository is out of bounds, since nothing stops a direct reviewer from reaching it."
+      },
+      {
+        "id": "restore-config",
+        "intent": "Direct reviews undo the change's edits to agent config instead of deleting it all",
+        "necessity": "required",
+        "serves": "direct-runs",
+        "removal_impact": "a direct review would either lose the project's usual agent instructions (how to run the tests) or follow instructions the reviewed change wrote for its reviewer",
+        "evidence": "Test: an edited CLAUDE.md is restored to its pre-change text, an untouched AGENTS.md stays, a pkg/AGENTS.md the change added is removed, and the change's code is checked out; the test also checks the restoration shows in git diff and nothing is staged.",
+        "hunks": [
+          "h20",
+          "h21",
+          "h22",
+          "h23"
+        ],
+        "notes": "One git diff --name-status against the base (a range's base, the target's parent, or git's empty tree for a first commit, which makes every file 'added'): added agent config is removed, anything else is restored to the base's version. Restored files are written to the working tree only (git show), not staged, so the reviewer's plain git diff shows the restoration; the bugs review found that git checkout staged it, hiding it from git diff. Files the restored config pulls in (an @import, a hook script, an MCP server in the repo) keep the change's version; the README says so. Sandboxed reviews still remove all agent configuration."
+      },
+      {
+        "id": "review-plumbing",
+        "intent": "--sandbox/gud.sandbox, gud.<agent>.args, and a preamble for each mode",
+        "necessity": "required",
+        "serves": "direct-runs",
+        "removal_impact": "the mode couldn't be chosen, extra arguments couldn't be set, and a direct reviewer would be told it's in a sandbox",
+        "hunks": [
+          "h15",
+          "h16",
+          "h17",
+          "h18",
+          "h19"
+        ],
+        "notes": "--network and --allow-domain apply only to sandboxed runs; using them without --sandbox prints a note. --browser applies to both. Every direct review prints a one-line reminder that reviewers run with the user's own settings and permissions (the reviews asked that the unsandboxed default never be silent). The sandboxed preamble now says all agent config, the project's and the change's, was removed. The dry run shows the mode, start directory and restored files."
+      },
+      {
+        "id": "windows",
+        "intent": "Find and launch agents on Windows; refuse --sandbox there",
+        "necessity": "required",
+        "serves": "direct-runs",
+        "removal_impact": "on Windows, `claude`, `agent` and `codex` installed by npm (as .cmd launchers) wouldn't be found or couldn't be started, and --sandbox would fail obscurely",
+        "hunks": [
+          "h5:34-36,39-49",
+          "h12:2-6"
+        ],
+        "notes": "Untested: there's no Windows machine here. which() tries PATHEXT's extensions; a .cmd or .bat is spawned through the shell with its arguments quoted (\"\" for a quote, which Node's argv parsing behind npm's .cmd launchers accepts; cmd.exe would still expand %VAR% in an argument, and only paths and flags are passed). The `git gud agents` probe skip on Windows is in agents-cmd."
+      },
+      {
+        "id": "summary-fix",
+        "intent": "Correct Claude's sandbox summary: the network is now configurable",
+        "necessity": "incidental",
+        "serves": "task",
+        "removal_impact": "`git gud agents` would still say a sandboxed Claude reviewer has no network, which is wrong since --network",
+        "hunks": [
+          "h6:12-13"
+        ]
+      },
+      {
+        "id": "agents-cmd",
+        "intent": "`git gud agents` shows what direct runs add, and skips sandbox probes on Windows",
+        "necessity": "supporting",
+        "serves": "direct-runs",
+        "removal_impact": "users couldn't see the arguments their direct reviews use",
+        "hunks": [
+          "h13",
+          "h14"
+        ]
+      },
+      {
+        "id": "tests",
+        "intent": "Tests for direct runs, restored config, gud.sandbox; existing tests opt into --sandbox",
+        "necessity": "supporting",
+        "serves": [
+          "direct-runs",
+          "restore-config",
+          "review-plumbing"
+        ],
+        "removal_impact": "the default mode, the config restore and the extra-arguments parsing would have no guard",
+        "hunks": [
+          "h24",
+          "h25",
+          "h26",
+          "h27",
+          "h28"
+        ],
+        "notes": "Tests that check sandbox settings now pass --sandbox, since direct is the default."
+      },
+      {
+        "id": "docs",
+        "intent": "README: direct by default, how to set a permission mode, --sandbox for untrusted code",
+        "necessity": "supporting",
+        "serves": [
+          "direct-runs",
+          "review-plumbing"
+        ],
+        "removal_impact": "users wouldn't know reviewers need a permission mode to run anything, or when to use --sandbox",
+        "hunks": [
+          "h1",
+          "h2",
+          "h3"
+        ],
+        "notes": "The Codex example is -s workspace-write: codex exec has no --full-auto (checked against its --help). The README says the clone is where a direct reviewer works, not a wall, and that restoring config doesn't cover files it pulls in; the honesty review found the first version overclaimed both."
+      }
+    ],
+    "alternatives": [
+      {
+        "option": "Remove the sandbox entirely",
+        "rejected_because": "reviewing code the user didn't write (a contributor's branch, a dependency bump) still warrants it"
+      },
+      {
+        "option": "Bypass permissions in direct runs by default",
+        "rejected_because": "the user's own permission mode is the right default; a git config line sets it"
+      },
+      {
+        "option": "Keep deleting all agent configuration in direct runs",
+        "rejected_because": "it drops the project's usual instructions, such as how to run the tests, which the user trusts"
+      }
+    ],
+    "risks": [
+      "Direct is the default, so a review of code the user didn't write runs with their permissions unless they pass --sandbox; each direct review prints a reminder",
+      "A direct reviewer can do anything the user's settings and permission mode allow, outside the clone too; it's only asked not to touch the real repository or remote services",
+      "Files that the project's own agent config pulls in (imports, hook scripts, MCP servers in the repo) come from the reviewed change",
+      "Windows support is untested",
+      "Codex and Cursor direct runs weren't run live",
+      "Without a permission mode set, headless reviewers are refused most commands and only read code; the README says so, but nothing warns at run time"
+    ]
+  },
+  "hunks": [
+    {
+      "id": "h1",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 1,
+      "oldLines": 6,
+      "newStart": 1,
+      "newLines": 6,
+      "hash": "0823df0176d22bce"
+    },
+    {
+      "id": "h2",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 8,
+      "oldLines": 12,
+      "newStart": 8,
+      "newLines": 13,
+      "hash": "39078e95661dc72c"
+    },
+    {
+      "id": "h3",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 34,
+      "oldLines": 22,
+      "newStart": 35,
+      "newLines": 44,
+      "hash": "6516f77c634c7611"
+    },
+    {
+      "id": "h4",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 2,
+      "oldLines": 13,
+      "newStart": 2,
+      "newLines": 16,
+      "hash": "5fb438d51b9da811"
+    },
+    {
+      "id": "h5",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 16,
+      "oldLines": 28,
+      "newStart": 19,
+      "newLines": 55,
+      "hash": "44d0354a42b11944"
+    },
+    {
+      "id": "h6",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 51,
+      "oldLines": 20,
+      "newStart": 81,
+      "newLines": 31,
+      "hash": "fa97c13127e6e297"
+    },
+    {
+      "id": "h7",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 90,
+      "oldLines": 7,
+      "newStart": 131,
+      "newLines": 7,
+      "hash": "f37664389a71beea"
+    },
+    {
+      "id": "h8",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 114,
+      "oldLines": 7,
+      "newStart": 155,
+      "newLines": 18,
+      "hash": "458114b840002bad"
+    },
+    {
+      "id": "h9",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 123,
+      "oldLines": 6,
+      "newStart": 175,
+      "newLines": 7,
+      "hash": "1ffa8ba832191c67"
+    },
+    {
+      "id": "h10",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 135,
+      "oldLines": 7,
+      "newStart": 188,
+      "newLines": 13,
+      "hash": "389c4a87a32e41ee"
+    },
+    {
+      "id": "h11",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 144,
+      "oldLines": 6,
+      "newStart": 203,
+      "newLines": 7,
+      "hash": "1ffa8ba832191c67"
+    },
+    {
+      "id": "h12",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 169,
+      "oldLines": 7,
+      "newStart": 229,
+      "newLines": 12,
+      "hash": "b046264f38a29894"
+    },
+    {
+      "id": "h13",
+      "file": "src/commands/agents.ts",
+      "oldFile": "src/commands/agents.ts",
+      "oldStart": 1,
+      "oldLines": 12,
+      "newStart": 1,
+      "newLines": 12,
+      "hash": "cbbfd431ff871130"
+    },
+    {
+      "id": "h14",
+      "file": "src/commands/agents.ts",
+      "oldFile": "src/commands/agents.ts",
+      "oldStart": 15,
+      "oldLines": 12,
+      "newStart": 15,
+      "newLines": 16,
+      "hash": "8eeaa438742dfd1b"
+    },
+    {
+      "id": "h15",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 1,
+      "oldLines": 21,
+      "newStart": 1,
+      "newLines": 29,
+      "hash": "9459b2520b95e293"
+    },
+    {
+      "id": "h16",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 29,
+      "oldLines": 13,
+      "newStart": 37,
+      "newLines": 14,
+      "hash": "0e5c881ad0ba8ca7"
+    },
+    {
+      "id": "h17",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 44,
+      "oldLines": 17,
+      "newStart": 53,
+      "newLines": 22,
+      "hash": "cb685bd63cb2122f"
+    },
+    {
+      "id": "h18",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 82,
+      "oldLines": 14,
+      "newStart": 96,
+      "newLines": 15,
+      "hash": "88189a7e15fb130c"
+    },
+    {
+      "id": "h19",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 109,
+      "oldLines": 12,
+      "newStart": 124,
+      "newLines": 12,
+      "hash": "371ccccad31e6b74"
+    },
+    {
+      "id": "h20",
+      "file": "src/git.ts",
+      "oldFile": "src/git.ts",
+      "oldStart": 1,
+      "oldLines": 5,
+      "newStart": 1,
+      "newLines": 8,
+      "hash": "5b54e4064c546323"
+    },
+    {
+      "id": "h21",
+      "file": "src/workspace.ts",
+      "oldFile": "src/workspace.ts",
+      "oldStart": 1,
+      "oldLines": 13,
+      "newStart": 1,
+      "newLines": 17,
+      "hash": "5db229ad9e04ffa3"
+    },
+    {
+      "id": "h22",
+      "file": "src/workspace.ts",
+      "oldFile": "src/workspace.ts",
+      "oldStart": 36,
+      "oldLines": 13,
+      "newStart": 40,
+      "newLines": 24,
+      "hash": "182ccff344aaa9f1"
+    },
+    {
+      "id": "h23",
+      "file": "src/workspace.ts",
+      "oldFile": "src/workspace.ts",
+      "oldStart": 59,
+      "oldLines": 12,
+      "newStart": 74,
+      "newLines": 33,
+      "hash": "64127f3fe10e3230"
+    },
+    {
+      "id": "h24",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 3,
+      "oldLines": 7,
+      "newStart": 3,
+      "newLines": 7,
+      "hash": "9a0a1497233c66f3"
+    },
+    {
+      "id": "h25",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 216,
+      "oldLines": 23,
+      "newStart": 216,
+      "newLines": 23,
+      "hash": "39347740d46c981f"
+    },
+    {
+      "id": "h26",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 264,
+      "oldLines": 7,
+      "newStart": 264,
+      "newLines": 7,
+      "hash": "58550303d9e5cfd0"
+    },
+    {
+      "id": "h27",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 283,
+      "oldLines": 7,
+      "newStart": 283,
+      "newLines": 7,
+      "hash": "749775506d6d6d3c"
+    },
+    {
+      "id": "h28",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 297,
+      "oldLines": 3,
+      "newStart": 297,
+      "newLines": 53,
+      "hash": "ee258eecd4db53c8"
+    }
+  ]
+}
