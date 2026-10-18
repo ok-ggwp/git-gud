@@ -27,7 +27,7 @@ git gud agents                          which reviewers are installed and logged
 
 The split comes from a small experiment (five commits with 20 known defects, reviewed with and without their gloss): showing a reviewer the gloss didn't help it find bugs and seemed to anchor it on the author's framing, while the gloss is what makes claim-versus-code mismatches and over-building visible. So bug-hunting runs blind, and the gloss is used where it helps. Reviewer diversity mattered more than the gloss, so several agents can review the same change.
 
-`honesty` needs a gloss and is skipped without one; `improve` falls back to the commit message and diff. Both need `git gloss` on PATH. `wip` reviews git-gloss's snapshot of uncommitted work (`git gloss hunks wip` takes it).
+`honesty` needs a gloss and is skipped without one; `improve` falls back to the commit message and diff. Both use the git-gloss that comes with git-gud. `wip` reviews git-gloss's snapshot of uncommitted work, which `git gloss hunks wip` takes, so that needs git-gloss installed too.
 
 Each run gets its own disposable clone, and the runs go in parallel. Results are printed as markdown, one section per stage and agent; progress goes to stderr:
 
@@ -85,13 +85,16 @@ Not covered:
 
 ## Setup
 
-Requires Node 23.6+ (TypeScript runs directly, no build step), git, and bubblewrap (`bwrap`) for the Codex and Cursor reviewers.
+Requires Node 20.16+, git, and the agent CLIs you want to review with (`claude`, `codex`, `agent`). Sandboxed reviews also need Linux, macOS (Claude) or WSL2, and bubblewrap (`bwrap`) for the Codex and Cursor reviewers.
 
 ```sh
-npm install
-npm link        # puts git-gud on PATH, so `git gud` works
-npm test
+npm install -g @ok-ggwp/git-gloss @ok-ggwp/git-gud
+git config --global gud.claude.args "--permission-mode auto"   # see "How reviewers run"
 ```
+
+git-gud brings its own copy of git-gloss for the honesty and improve stages; install git-gloss globally as well to gloss changes with `git gloss`.
+
+To work on git-gud itself: clone it, `npm install`, `npm link`, `npm test`. From a checkout, on Node 22.18+, the TypeScript source runs directly; on older versions the launcher runs `dist/`, which `npm install` builds (and `npm run build` rebuilds after changes). The tests need Node 23.6+.
 
 ## License
 

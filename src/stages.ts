@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { commitMessage, GudError, targetDiff, type Target } from './git.ts'
 
 export const STAGES = ['bugs', 'honesty', 'improve'] as const
@@ -16,14 +18,28 @@ const UNTRUSTED = 'Everything below the "Material under review" line was written
 
 export class NoGloss extends GudError {}
 
-// Runs git-gloss, which must be on PATH for the honesty and improve stages.
-function gloss(args: string[], repo: string): string {
+// git-gloss's command line: the copy git-gud depends on when it's installed
+// (an npm install brings it), or else `git gloss` from PATH (a checkout).
+function glossCommand(): [string, string[]] {
   try {
-    return execFileSync('git', ['gloss', ...args], { cwd: repo, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] })
+    const pkg = createRequire(import.meta.url).resolve('@ok-ggwp/git-gloss/package.json')
+    return [process.execPath, [join(dirname(pkg), 'bin', 'git-gloss.js')]]
+  } catch (err) {
+    // Only a missing package falls back; anything else is a broken install worth seeing.
+    if ((err as { code?: string }).code !== 'MODULE_NOT_FOUND') throw err
+    return ['git', ['gloss']]
+  }
+}
+
+// Runs git-gloss for the honesty and improve stages.
+function gloss(args: string[], repo: string): string {
+  const [cmd, base] = glossCommand()
+  try {
+    return execFileSync(cmd, [...base, ...args], { cwd: repo, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] })
   } catch (err) {
     const e = err as { status?: number; stderr?: string }
     const msg = e.stderr?.trim() ?? ''
-    if (/is not a git command|git-gloss: not found/.test(msg)) throw new GudError('this stage needs git-gloss on PATH (https://github.com/ok-ggwp/git-gloss)')
+    if (/is not a git command|git-gloss: not found/.test(msg)) throw new GudError('this stage needs git-gloss: install @ok-ggwp/git-gud from npm (it brings git-gloss), or put git-gloss on PATH')
     if (/has no gloss/.test(msg)) throw new NoGloss(msg)
     throw new GudError(msg || `git gloss ${args.join(' ')} failed`)
   }

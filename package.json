@@ -3,16 +3,47 @@
   "version": "0.1.0",
   "description": "Review changes with coding agents in sandboxed clones: bugs, gloss honesty and improvements",
   "license": "MIT",
+  "keywords": [
+    "git",
+    "code-review",
+    "ai",
+    "agents",
+    "claude",
+    "codex",
+    "cursor"
+  ],
+  "homepage": "https://github.com/ok-ggwp/git-gud#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ok-ggwp/git-gud.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ok-ggwp/git-gud/issues"
+  },
   "type": "module",
   "bin": {
     "git-gud": "bin/git-gud.js"
   },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
-    "node": ">=23.6"
+    "node": ">=20.16"
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepare": "npm run build",
     "test": "node --test 'test/**/*.test.ts'",
     "typecheck": "tsc"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@ok-ggwp/git-gloss": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

@@ -1,0 +1,12 @@
+{
+  // Compiles src/ to dist/ for publishing: plain JavaScript that Node 20 runs.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "target": "es2022",
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src"]
+}
