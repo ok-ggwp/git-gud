@@ -1,0 +1,309 @@
+{
+  "gloss": 3,
+  "commit": "3c9c04173920ade1d8de9db52e8d48cf7fb732e5",
+  "created_at": "2026-10-18T17:31:59.110Z",
+  "annotation": {
+    "version": 1,
+    "task": "Let reviewers verify web changes in a headless browser, and let the user make full network access their default, while keeping reviewers from escaping the sandbox through local sockets",
+    "summary": "Reviews take an access setting: network (open, a domain list for Claude, or none), and browser (Unix sockets for Chromium, plus guidance to run the dev server and look at screenshots). Defaults come from git config gud.network and gud.browser; flags override per run. Allowing Unix sockets would let a reviewer reach sockets that run commands outside the sandbox (D-Bus, Hyprland, an X server in /tmp, gpg, an editor's server, Docker), so every listening socket on the machine is hidden from Claude reviewers; the Codex/Cursor sandbox now covers them too.",
+    "groups": [
+      {
+        "id": "claude-access",
+        "intent": "Access settings in Claude's sandbox, and what the reviewer is told",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "Claude reviewers could never use the network or a browser: Chromium aborts when its Unix socket is blocked",
+        "evidence": "Live: with network and browser on, curl reached example.com (200), a dev server plus Chromium in one script rendered a page's JavaScript and took a screenshot, and Claude described the PNG correctly. The settings are checked in test 'network and browser access'.",
+        "hunks": [
+          "h3",
+          "h4",
+          "h5"
+        ],
+        "notes": "Open network uses the permission rule WebFetch(domain:*), the documented wildcard for the sandbox's allowlist (sandbox.network.allowedDomains has none); --allow-domain uses allowedDomains. The browser sets allowAllUnixSockets, the only Linux option for Unix sockets. The guidance tells reviewers to put the dev server and the browser in one script, because each sandboxed command gets its own loopback network on Linux, and Claude Code refused to auto-approve the equivalent one-line compound command. The bugs review read the settings and concluded --network doesn't open the sandbox's network because sandbox.network stays empty; the live test, where curl reached example.com with exactly these settings, shows the WebFetch(domain:*) rule does."
+      },
+      {
+        "id": "outer-access",
+        "intent": "Codex/Cursor reviewers are told the network is theirs to use when it's on",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "Codex and Cursor reviewers would keep being told not to use the network even when the user wants them to, and would get no browser guidance",
+        "hunks": [
+          "h6"
+        ],
+        "notes": "Their network is open regardless (the agent needs it); only the instruction changes, so the user's open-network default applies to them too. Chromium works in this sandbox (checked earlier: it loaded a page and ran its JavaScript)."
+      },
+      {
+        "id": "hide-sockets",
+        "intent": "Hide every listening Unix socket from Claude reviewers",
+        "necessity": "required",
+        "serves": "claude-access",
+        "removal_impact": "with Unix sockets allowed for the browser, a Claude reviewer could connect to the X server in /tmp/.X11-unix (and type into terminals), the D-Bus session bus, Hyprland's control socket or an editor's server, and run commands outside the sandbox",
+        "evidence": "Live, Claude with network and browser on: the runtime directory empty, the session bus ENOENT, Hyprland's directory gone, /run/docker.sock hidden, and /tmp/.X11-unix/X0 refused once all 83 listening sockets were hidden, while curl (200), Chromium and DNS still worked. The test checks the listening sockets are in denyRead.",
+        "hunks": [
+          "h13:1-25",
+          "h12:1-2",
+          "h5"
+        ],
+        "notes": "The first version hid only /run/user and container sockets; git-gud's own review of it found /tmp sockets (X11, tmux, ssh-agent) still reachable, and the X11 socket exists on this machine. Now hostSockets() reads /proc/net/unix at review start and hides each socket file (hiding a single file was checked live). A socket created after the review starts isn't covered; abstract sockets can't be hidden this way, but Claude's own network namespace isolates them. Shares h5 with claude-access (the denyRead line)."
+      },
+      {
+        "id": "outer-socket-cover",
+        "intent": "Cover listening sockets in the Codex/Cursor sandbox too, and probe for them",
+        "necessity": "defensive",
+        "serves": "task",
+        "removal_impact": "Codex/Cursor reviewers could reach Docker's socket (root-equivalent for docker-group users) and system sockets outside /tmp, home and the runtime directory, as they could before this change",
+        "evidence": "With the cover removed, the probe reports 'host socket reachable: /run/docker.sock' and refuses to run",
+        "hunks": [
+          "h13:26-30",
+          "h14",
+          "h12:3-7"
+        ],
+        "notes": "Not needed for the browser: this sandbox never blocked Unix sockets, so the exposure predates the change (the honesty review asked for it to be split out). /tmp, home and the runtime directory are already fresh there, so only sockets elsewhere are covered."
+      },
+      {
+        "id": "review-flags",
+        "intent": "--network, --allow-domain, --browser (and --no-…), defaulting from gud.* config",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "access couldn't be chosen, and the user's 'network open normally' couldn't be a default",
+        "hunks": [
+          "h7",
+          "h8",
+          "h9",
+          "h10",
+          "h11"
+        ],
+        "notes": "Uses parseArgs' allowNegative for --no-network and --no-browser; defaults read with git config --type=bool. Prints a note when --allow-domain has no effect (with --network, or for Codex/Cursor reviewers), which the bugs review found was silently ignored."
+      },
+      {
+        "id": "tests",
+        "intent": "Test access defaults, config, flags and the Claude settings; isolate tests from global config",
+        "necessity": "supporting",
+        "serves": [
+          "claude-access",
+          "review-flags",
+          "hide-sockets"
+        ],
+        "removal_impact": "the access defaults and settings would have no guard, and the suite would depend on the user's global gud.* config",
+        "hunks": [
+          "h15",
+          "h16",
+          "h17"
+        ],
+        "notes": "The access test no longer needs git-gloss or a real claude (a stub on PATH): in the review sandbox it had been skipped. Tests run with GIT_CONFIG_GLOBAL=/dev/null so the user's gud.* config can't leak in."
+      },
+      {
+        "id": "docs",
+        "intent": "README: the options, how to make them defaults, and what they open up",
+        "necessity": "supporting",
+        "serves": [
+          "review-flags",
+          "hide-sockets"
+        ],
+        "removal_impact": "users wouldn't know reviewers can use the network and a browser, how to make that the default, or that open network lets a reviewer send out what it can read",
+        "hunks": [
+          "h1",
+          "h2"
+        ]
+      }
+    ],
+    "alternatives": [
+      {
+        "option": "Keep the network closed always",
+        "rejected_because": "the user already lets their agents use the network on their behalf; a stricter reviewer only loses capability"
+      },
+      {
+        "option": "Allow Unix sockets without hiding anything",
+        "rejected_because": "the user's runtime directory holds sockets that run commands outside the sandbox"
+      },
+      {
+        "option": "Use excludedCommands to run dev servers outside Claude's sandbox",
+        "rejected_because": "it would run them with no filesystem or network restriction at all"
+      },
+      {
+        "option": "Make network and browser on by default in the code",
+        "rejected_because": "git-gud may review code the user didn't write; the user's own default is a one-line git config"
+      }
+    ],
+    "risks": [
+      "With the network on, a reviewer can send out anything it can read: the repository, and files outside the home directory",
+      "A socket created after the review starts isn't hidden",
+      "Codex/Cursor share the host's network namespace, so abstract Unix sockets (an abstract X socket on an X11 desktop) are reachable to them; none on this machine",
+      "Hiding with denyRead is relied on to block connect(); verified live here, but Claude Code's docs don't promise it",
+      "Codex and Cursor weren't run live with these settings; their sandbox's probe and the earlier Chromium check cover them",
+      "Chromium runs with --no-sandbox inside the reviewer's sandbox, so pages it loads aren't isolated from the reviewer's other processes"
+    ]
+  },
+  "hunks": [
+    {
+      "id": "h1",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 8,
+      "oldLines": 6,
+      "newStart": 8,
+      "newLines": 9,
+      "hash": "8aa2cc7314af1370"
+    },
+    {
+      "id": "h2",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 31,
+      "oldLines": 15,
+      "newStart": 34,
+      "newLines": 29,
+      "hash": "072920c3df70f9c3"
+    },
+    {
+      "id": "h3",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 3,
+      "oldLines": 7,
+      "newStart": 3,
+      "newLines": 7,
+      "hash": "23ca7a4e228b3d28"
+    },
+    {
+      "id": "h4",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 16,
+      "oldLines": 15,
+      "newStart": 16,
+      "newLines": 22,
+      "hash": "750e8977cf03ea49"
+    },
+    {
+      "id": "h5",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 38,
+      "oldLines": 30,
+      "newStart": 45,
+      "newLines": 48,
+      "hash": "41d3d4695a5516d9"
+    },
+    {
+      "id": "h6",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 75,
+      "oldLines": 8,
+      "newStart": 100,
+      "newLines": 11,
+      "hash": "3732048e19d188e0"
+    },
+    {
+      "id": "h7",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 1,
+      "oldLines": 17,
+      "newStart": 1,
+      "newLines": 17,
+      "hash": "ebc2df858878b8b9"
+    },
+    {
+      "id": "h8",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 29,
+      "oldLines": 9,
+      "newStart": 29,
+      "newLines": 14,
+      "hash": "998b159b2692c7a7"
+    },
+    {
+      "id": "h9",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 39,
+      "oldLines": 6,
+      "newStart": 44,
+      "newLines": 21,
+      "hash": "2eb1b22221b7e534"
+    },
+    {
+      "id": "h10",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 65,
+      "oldLines": 12,
+      "newStart": 85,
+      "newLines": 12,
+      "hash": "1b62ca5a856b71c4"
+    },
+    {
+      "id": "h11",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 94,
+      "oldLines": 8,
+      "newStart": 114,
+      "newLines": 8,
+      "hash": "a33d7c0507ccbd20"
+    },
+    {
+      "id": "h12",
+      "file": "src/sandbox.ts",
+      "oldFile": "src/sandbox.ts",
+      "oldStart": 1,
+      "oldLines": 13,
+      "newStart": 1,
+      "newLines": 14,
+      "hash": "53168438fed3bb30"
+    },
+    {
+      "id": "h13",
+      "file": "src/sandbox.ts",
+      "oldFile": "src/sandbox.ts",
+      "oldStart": 15,
+      "oldLines": 14,
+      "newStart": 16,
+      "newLines": 42,
+      "hash": "a4527c353e6fe558"
+    },
+    {
+      "id": "h14",
+      "file": "src/sandbox.ts",
+      "oldFile": "src/sandbox.ts",
+      "oldStart": 46,
+      "oldLines": 9,
+      "newStart": 75,
+      "newLines": 11,
+      "hash": "2f4167c27e6cebf1"
+    },
+    {
+      "id": "h15",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 1,
+      "oldLines": 7,
+      "newStart": 1,
+      "newLines": 7,
+      "hash": "b824334315531399"
+    },
+    {
+      "id": "h16",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 42,
+      "oldLines": 8,
+      "newStart": 42,
+      "newLines": 9,
+      "hash": "2d1dcb339aa3b1ba"
+    },
+    {
+      "id": "h17",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 255,
+      "oldLines": 3,
+      "newStart": 256,
+      "newLines": 44,
+      "hash": "27c40e97d20ed5a2"
+    }
+  ]
+}
