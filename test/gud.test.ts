@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveTarget } from '../src/git.ts'
@@ -42,8 +42,9 @@ function repo(opts: { glossed?: boolean } = {}): string {
   return dir
 }
 
-function gud(cwd: string, args: string[]) {
-  const r = spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: 'utf8' })
+function gud(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) {
+  // The user's global git config (gud.network, gud.browser) mustn't leak in.
+  const r = spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', ...env } })
   return { code: r.status, out: r.stdout, err: r.stderr }
 }
 
@@ -254,4 +255,45 @@ test('review rejects unknown stages and agents', () => {
   const r = gud(dir, ['review', '--stage', 'honesty', '--dry-run'])
   assert.equal(r.code, 1)
   assert.match(r.err, /skipping the honesty stage[\s\S]*nothing to review/)
+})
+
+test('network and browser access: off by default, on from git config or flags, and in the Claude settings', () => {
+  const dir = repo()
+  // The dry run prints the command it would run; any claude on PATH will do.
+  const bin = realpathSync(mkdtempSync(join(tmpdir(), 'gud-bin-')))
+  writeFileSync(join(bin, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  const settings = (out: string) => JSON.parse(JSON.parse(/"--settings" ("(?:[^"\\]|\\.)*")/.exec(out)![1]))
+  const dry = (...args: string[]) => {
+    const r = gud(dir, ['review', '--dry-run', '--stage', 'bugs', '--agent', 'claude', ...args], { PATH: `${bin}:${process.env.PATH}` })
+    assert.equal(r.code, 0, r.err)
+    return r.out
+  }
+  let out = dry()
+  let s = settings(out)
+  assert.deepEqual(s.sandbox.network, {})
+  assert.ok(s.permissions.deny.includes('WebFetch'))
+  assert.ok(s.sandbox.filesystem.denyRead.includes(`/run/user/${process.getuid!()}`), 'the runtime directory is always hidden')
+  assert.match(out, /You have no network\./)
+
+  execFileSync('git', ['config', 'gud.network', 'true'], { cwd: dir })
+  execFileSync('git', ['config', 'gud.browser', 'true'], { cwd: dir })
+  out = dry()
+  s = settings(out)
+  assert.ok(s.permissions.allow.includes('WebFetch(domain:*)'))
+  assert.ok(!s.permissions.deny.includes('WebFetch'))
+  assert.equal(s.sandbox.network.allowAllUnixSockets, true)
+  assert.match(out, /You have network access/)
+  assert.match(out, /A headless browser is available/)
+
+  out = dry('--no-network', '--no-browser', '--allow-domain', 'registry.npmjs.org')
+  s = settings(out)
+  assert.deepEqual(s.sandbox.network, { allowedDomains: ['registry.npmjs.org'] })
+  assert.match(out, /only these domains: registry\.npmjs\.org/)
+  // Every listening socket on the machine is hidden, not just known places.
+  const listening = readFileSync('/proc/net/unix', 'utf8').split('\n').slice(1).map((l) => l.trim().split(/\s+/)[7]).filter((p) => p?.startsWith('/'))
+  for (const p of listening.slice(0, 20)) {
+    let real: string
+    try { real = realpathSync(p) } catch { continue }
+    assert.ok(s.sandbox.filesystem.denyRead.includes(real), `${real} is hidden`)
+  }
 })

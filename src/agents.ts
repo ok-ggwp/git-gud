@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync, readFileSync, realpathSync } from 'n
 import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { GudError } from './git.ts'
-import { bwrapArgs, probe, type Binds } from './sandbox.ts'
+import { bwrapArgs, hostSockets, probe, runtimeDir, type Binds } from './sandbox.ts'
 import type { Workspace } from './workspace.ts'
 
 export type RunSpec = {
@@ -16,15 +16,22 @@ export type RunSpec = {
   outputFile?: string
 }
 
+// What a review may use beyond the workspace. `network`: open outbound
+// network for the agent's commands (Codex and Cursor always have it, since
+// they reach their model through the sandbox); `domains`: just these, for
+// Claude; `browser`: what a headless browser and a local dev server need.
+export type Access = { network: boolean; domains: string[]; browser: boolean }
+export const NO_ACCESS: Access = { network: false, domains: [], browser: false }
+
 export type Agent = {
   name: string
   // For the reviewer's prompt: what it can and can't do.
-  confinement: (ws: Workspace) => string
+  confinement: (ws: Workspace, access: Access) => string
   // One line for `git gud agents`.
   summary: string
   command: string
   login: (bin: string) => string
-  spec: (bin: string, ws: Workspace, model?: string) => RunSpec
+  spec: (bin: string, ws: Workspace, model?: string, access?: Access) => RunSpec
 }
 
 export function which(cmd: string): string | null {
@@ -38,30 +45,48 @@ export function which(cmd: string): string | null {
 const firstLine = (r: ReturnType<typeof spawnSync>) =>
   r.error ? `unknown (${r.error.message})` : (`${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n')[0] || `exit ${r.status}`)
 
-const NO_NETWORK_USE = 'Do not use the network; nothing in this review needs it.'
+// What to tell the reviewer about the network and the browser.
+const OPEN_NETWORK = 'You have network access; use it when it helps (installing a missing package, reading documentation), but do not change anything outside the sandbox, such as remote services or repositories.'
+const networkText = (access: Access) =>
+  access.network ? OPEN_NETWORK
+  : access.domains.length ? `Your commands can reach only these domains: ${access.domains.join(', ')}.`
+  : 'You have no network.'
+const browserText = (access: Access) => access.browser
+  ? ' A headless browser is available (`chromium --headless=new --no-sandbox`). For changes that affect a web page, start the project\'s dev server, load the affected pages, take screenshots (--screenshot=<file>, --window-size=<w>,<h>) and look at them, and check the browser console for errors. Start the server and run the browser in one script (write it to a file and run it with bash: start the server in the background, wait for it, run chromium, then kill the server): each shell command may get its own loopback network, so a server started by one command can be unreachable from the next.'
+  : ''
 
 const claude: Agent = {
   name: 'claude',
   command: 'claude',
   summary: 'Claude Code in its own OS sandbox: shell commands write only in the workspace, cannot read your home directory, and have no network; file tools are limited to the workspace',
-  confinement: (ws) => `Your shell commands run in an OS sandbox: you can write only under ${ws.dir}, cannot read the user's home directory, and have no network.`,
+  confinement: (ws, access) => `Your shell commands run in an OS sandbox: you can write only under ${ws.dir} and cannot read the user's home directory. ${networkText(access)}${browserText(access)}`,
   login: (bin) => {
     const r = spawnSync(bin, ['auth', 'status'], { encoding: 'utf8', timeout: 20_000 })
     try { return JSON.parse(r.stdout).loggedIn ? 'logged in' : 'not logged in' } catch { return firstLine(r) }
   },
-  spec: (bin, ws, model) => {
+  spec: (bin, ws, model, access = NO_ACCESS) => {
     // Permission rules take //path for absolute paths, which `/${dir}` gives.
+    // The runtime directory and every listening socket are hidden as well as
+    // ~: with Unix sockets allowed (a browser needs them), a compositor's,
+    // D-Bus's or an X server's socket would let a command run anything
+    // outside. Hiding a socket file this way was checked live.
+    // The sandbox's network allowlist takes WebFetch(domain:…) rules too;
+    // "*" is the documented way to open it fully.
     const settings = {
       sandbox: {
         enabled: true,
         failIfUnavailable: true,
         allowUnsandboxedCommands: false,
         autoAllowBashIfSandboxed: true,
-        filesystem: { denyRead: ['~/'], allowRead: [ws.dir], allowWrite: [ws.dir] },
+        filesystem: { denyRead: ['~/', runtimeDir(), ...hostSockets(ws.dir)], allowRead: [ws.dir], allowWrite: [ws.dir] },
+        network: {
+          ...(access.domains.length ? { allowedDomains: access.domains } : {}),
+          ...(access.browser ? { allowAllUnixSockets: true } : {}),
+        },
       },
       permissions: {
-        allow: [`Read(/${ws.dir}/**)`, `Edit(/${ws.dir}/**)`],
-        deny: ['Read(~/**)', 'Edit(~/**)', 'WebFetch', 'WebSearch'],
+        allow: [`Read(/${ws.dir}/**)`, `Edit(/${ws.dir}/**)`, ...(access.network ? ['WebFetch(domain:*)', 'WebSearch'] : [])],
+        deny: ['Read(~/**)', 'Edit(~/**)', ...(access.network ? [] : ['WebFetch', 'WebSearch'])],
       },
     }
     // Only user settings load, so the reviewed repo can't configure its reviewer.
@@ -75,8 +100,11 @@ const claude: Agent = {
 // not start inside the outer one.
 const OUTER = 'git-gud\'s bubblewrap sandbox: the agent and its commands see the filesystem read-only, with your home directory hidden except the agent\'s own state; writes reach only the workspace and that state; the network stays open because the agent needs it'
 
-const outerConfinement = (ws: Workspace) =>
-  `Your shell commands run in a sandbox: the filesystem is read-only except ${ws.dir}, and the user's home directory is hidden. The network is reachable, but ${NO_NETWORK_USE.toLowerCase()}`
+// Codex and Cursor reach their model through the sandbox, so the network is
+// open either way; without --network they're asked not to use it.
+const outerConfinement = (ws: Workspace, access: Access) =>
+  `Your shell commands run in a sandbox: the filesystem is read-only except ${ws.dir}, and the user's home directory is hidden. ` +
+  (access.network ? OPEN_NETWORK : 'The network is reachable, but do not use it; nothing in this review needs it.') + browserText(access)
 
 const codexHome = () => process.env.CODEX_HOME || join(homedir(), '.codex')
 

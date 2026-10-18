@@ -1,17 +1,17 @@
 import { parseArgs } from 'node:util'
-import { git, GudError, resolveTarget, type Target } from '../git.ts'
-import { parseAgent, resolveBin, runAgent, which, type Agent } from '../agents.ts'
+import { git, gitTry, GudError, resolveTarget, type Target } from '../git.ts'
+import { parseAgent, resolveBin, runAgent, which, type Access, type Agent } from '../agents.ts'
 import { fenced, NoGloss, STAGES, stagePrompt, type Stage } from '../stages.ts'
 import { createWorkspace, type Workspace } from '../workspace.ts'
 
-export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--dry-run] [--keep]   review a change with coding agents in sandboxed clones'
+export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--network | --allow-domain <d>]... [--browser] [--dry-run] [--keep]   review a change with coding agents in sandboxed clones'
 
-function preamble(agent: Agent, ws: Workspace, t: Target): string {
+function preamble(agent: Agent, ws: Workspace, t: Target, access: Access): string {
   const what = t.kind === 'wip'
     ? 'a snapshot commit of the author\'s uncommitted work (HEAD is that snapshot; the changes are not committed in the real repository)'
     : t.kind === 'range' ? `the tip of the branch under review (${t.rev})` : 'the commit under review'
   return `You are running in a sandbox directory ${ws.dir} containing a disposable clone of the repository at ${ws.clone},
-checked out at ${what}. ${agent.confinement(ws)} Create scratch tests and throwaway git repos under ${ws.scratch}
+checked out at ${what}. ${agent.confinement(ws, access)} Create scratch tests and throwaway git repos under ${ws.scratch}
 and run them. To run the code under review, use the clone's own entry points, build and tests, not any globally installed copy.${ws.removed.length ? `
 
 These agent configuration files from the reviewed change were removed from the checkout so they could not configure you;
@@ -29,15 +29,35 @@ export async function run(argv: string[]): Promise<number> {
       stage: { type: 'string' },
       agent: { type: 'string', multiple: true },
       max: { type: 'string' },
+      network: { type: 'boolean' },
+      'allow-domain': { type: 'string', multiple: true },
+      browser: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       keep: { type: 'boolean' },
     },
+    // --no-network and --no-browser override the git config defaults.
+    allowNegative: true,
   })
   const stages = (values.stage ?? STAGES.join(',')).split(',').map((s) => s.trim()).filter(Boolean)
   for (const s of stages) if (!STAGES.includes(s as Stage)) throw new GudError(`unknown stage "${s}" (stages: ${STAGES.join(', ')})`)
   const agents = (values.agent ?? ['claude']).map(parseAgent)
   const max = Number(values.max ?? 5)
   if (!Number.isInteger(max) || max < 1) throw new GudError('--max takes a positive whole number')
+
+  // Defaults from git config (gud.network, gud.browser), so someone who always
+  // wants them sets them once; flags override for one run.
+  const setting = (key: string) => gitTry(['config', '--type=bool', '--get', key])?.trim() === 'true'
+  const access: Access = {
+    network: values.network ?? setting('gud.network'),
+    domains: values['allow-domain'] ?? [],
+    browser: values.browser ?? setting('gud.browser'),
+  }
+
+  // Say when an access choice has no effect, rather than ignore it.
+  if (access.domains.length && access.network) console.error('note: --allow-domain has no effect with the network fully open (--network or gud.network)')
+  else if (access.domains.length && agents.some(({ agent }) => agent.name !== 'claude')) {
+    console.error('note: --allow-domain applies to Claude reviewers only; Codex and Cursor reach their model through an open network and are asked not to use it')
+  }
 
   const repo = git(['rev-parse', '--show-toplevel']).trim()
   const target = resolveTarget(positionals[0] ?? 'HEAD')
@@ -65,12 +85,12 @@ export async function run(argv: string[]): Promise<number> {
       const ws = createWorkspace(repo, target, r.stage !== 'bugs')
       try {
         const bin = bins.get(r.agent.name)
-        const spec = bin ? r.agent.spec(bin, ws, r.model) : null
+        const spec = bin ? r.agent.spec(bin, ws, r.model, access) : null
         console.log(`===== ${label(r)} =====\n\nworkspace: ${ws.dir}\nhead: ${git(['rev-parse', 'HEAD'], { cwd: ws.clone }).trim()}\n` +
           `remotes: ${git(['remote'], { cwd: ws.clone }).trim().split('\n').filter(Boolean).length}\n` +
           `glosses: ${git(['for-each-ref', '--format=%(refname)', 'refs/notes/'], { cwd: ws.clone }).trim() || 'none'}\n` +
           `removed: ${ws.removed.join(' ') || 'none'}\ncommand: ${spec ? `${spec.cmd} ${spec.args.map((a) => JSON.stringify(a)).join(' ')}` : `(${r.agent.command} is not on PATH)`}\n\n` +
-          `${preamble(r.agent, ws, target)}\n\n${r.prompt}\n`)
+          `${preamble(r.agent, ws, target, access)}\n\n${r.prompt}\n`)
       } finally {
         if (!values.keep) ws.dispose()
       }
@@ -94,8 +114,8 @@ export async function run(argv: string[]): Promise<number> {
     const started = Date.now()
     console.error(`${label(r)}: started`)
     try {
-      const spec = r.agent.spec(bins.get(r.agent.name)!, ws, r.model)
-      const res = await runAgent(spec, ws, `${preamble(r.agent, ws, target)}\n\n${r.prompt}`)
+      const spec = r.agent.spec(bins.get(r.agent.name)!, ws, r.model, access)
+      const res = await runAgent(spec, ws, `${preamble(r.agent, ws, target, access)}\n\n${r.prompt}`)
       console.error(`${label(r)}: ${res.ok ? 'done' : 'failed'} after ${Math.round((Date.now() - started) / 1000)}s`)
       return { r, ...res }
     } catch (err) {
