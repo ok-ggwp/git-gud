@@ -1,0 +1,208 @@
+{
+  "gloss": 1,
+  "commit": "9a5ac8e20062ce503dc6fb063a7b2b0976d795a7",
+  "created_at": "2026-10-18T20:16:39.414Z",
+  "annotation": {
+    "version": 1,
+    "task": "Record each finished review beside the glosses, with what it saw and its verdict",
+    "summary": "Before the agents start, git-gud stamps what they will see (git gloss reviews --stamp); after each successful run it records the report with that stamp (--record), unless --no-record. The bugs and improve prompts now end with a VERDICT line, as git-gloss's honesty prompt does. Depends on git-gloss 0.2.0, which has the reviews command.",
+    "groups": [
+      {
+        "id": "record",
+        "intent": "Stamp before the runs, record each successful review after; --no-record",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "reviews would be printed and lost, so a later reader of the branch couldn't see that its glosses were checked",
+        "evidence": "Live: a real honesty review of a fixture commit was recorded; git gloss show then marked it reviewed and the branch header counted it",
+        "hunks": [
+          "h5",
+          "h6",
+          "h7",
+          "h8"
+        ],
+        "notes": "The stamp names the exact commits the clones are built from (base..sha for a range, the sha otherwise), taken once before any agent runs. Any failure taking it (including non-JSON output) prints a note and costs only the record. Records from one git-gud run are written one at a time (Node runs the synchronous calls in turn); separate processes recording at once are handled by git-gloss's compare-and-swap. Dry runs record nothing."
+      },
+      {
+        "id": "shared-gloss-runner",
+        "intent": "Export the git-gloss runner, which can now pass input on stdin",
+        "necessity": "supporting",
+        "serves": "record",
+        "removal_impact": "recording would need a second way to find and run git-gloss",
+        "hunks": [
+          "h9"
+        ]
+      },
+      {
+        "id": "verdict-prompts",
+        "intent": "Bugs and improve prompts end with VERDICT: CLEAN or ISSUES",
+        "necessity": "required",
+        "serves": "record",
+        "removal_impact": "recorded bug and improvement reviews couldn't say whether they found anything",
+        "hunks": [
+          "h10",
+          "h11"
+        ]
+      },
+      {
+        "id": "dependency",
+        "intent": "Version 0.2.0, depending on git-gloss ^0.2.0",
+        "necessity": "required",
+        "serves": "record",
+        "removal_impact": "an installed git-gud would bring git-gloss 0.1.0, which can't stamp or record reviews",
+        "hunks": [
+          "h3",
+          "h4"
+        ],
+        "notes": "Until git-gloss 0.2.0 is published, the dependency is linked to the local checkout and package-lock.json is out of date."
+      },
+      {
+        "id": "docs",
+        "intent": "README: --no-record, and that reviews are recorded and shared",
+        "necessity": "supporting",
+        "serves": "record",
+        "removal_impact": "users wouldn't know their reviews are kept beside the glosses and shared on push",
+        "hunks": [
+          "h1",
+          "h2"
+        ]
+      },
+      {
+        "id": "tests",
+        "intent": "Test a full review with a stand-in reviewer: recorded with its verdict, or not with --no-record",
+        "necessity": "supporting",
+        "serves": "record",
+        "removal_impact": "the stamp, record and verdict wiring would have no guard",
+        "hunks": [
+          "h12"
+        ],
+        "notes": "Checked to fail when the stand-in's verdict is changed to ISSUES. Returns early where the installed git-gloss can't record reviews."
+      }
+    ],
+    "risks": [
+      "Publishing order: git-gloss 0.2.0 first, then npm install here (the lockfile still pins 0.1.0, so npm ci fails until then), then git-gud 0.2.0",
+      "Recording happens for direct and sandboxed runs alike; the record says which"
+    ]
+  },
+  "hunks": [
+    {
+      "id": "h1",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 12,
+      "oldLines": 6,
+      "newStart": 12,
+      "newLines": 7,
+      "hash": "7e64b595f3ae03c1"
+    },
+    {
+      "id": "h2",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 29,
+      "oldLines": 7,
+      "newStart": 30,
+      "newLines": 7,
+      "hash": "fb500384f9d97657"
+    },
+    {
+      "id": "h3",
+      "file": "package.json",
+      "oldFile": "package.json",
+      "oldStart": 1,
+      "oldLines": 6,
+      "newStart": 1,
+      "newLines": 6,
+      "hash": "99fd8df309f26ebc"
+    },
+    {
+      "id": "h4",
+      "file": "package.json",
+      "oldFile": "package.json",
+      "oldStart": 43,
+      "oldLines": 7,
+      "newStart": 43,
+      "newLines": 7,
+      "hash": "b1d27b4d39252f88"
+    },
+    {
+      "id": "h5",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 1,
+      "oldLines": 10,
+      "newStart": 1,
+      "newLines": 10,
+      "hash": "35d7ed2743e2b819"
+    },
+    {
+      "id": "h6",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 41,
+      "oldLines": 6,
+      "newStart": 41,
+      "newLines": 7,
+      "hash": "60eedf7e5092762b"
+    },
+    {
+      "id": "h7",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 88,
+      "oldLines": 6,
+      "newStart": 89,
+      "newLines": 23,
+      "hash": "67d086b61bfebede"
+    },
+    {
+      "id": "h8",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 132,
+      "oldLines": 6,
+      "newStart": 150,
+      "newLines": 17,
+      "hash": "e91a991b1b3263f3"
+    },
+    {
+      "id": "h9",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 31,
+      "oldLines": 11,
+      "newStart": 31,
+      "newLines": 11,
+      "hash": "28244da3e80de897"
+    },
+    {
+      "id": "h10",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 73,
+      "oldLines": 6,
+      "newStart": 73,
+      "newLines": 8,
+      "hash": "297943b1a2cc17fc"
+    },
+    {
+      "id": "h11",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 105,
+      "oldLines": 6,
+      "newStart": 107,
+      "newLines": 8,
+      "hash": "4ffa538ac0a6c64e"
+    },
+    {
+      "id": "h12",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 347,
+      "oldLines": 3,
+      "newStart": 347,
+      "newLines": 21,
+      "hash": "931fd876554ef75d"
+    }
+  ]
+}
