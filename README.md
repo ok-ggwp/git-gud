@@ -12,6 +12,7 @@ git gud review [<commit>|<range>|wip]   review HEAD, a branch (main..feature) or
       --sandbox | --no-sandbox          confine reviewers, for code you don't trust (default: gud.sandbox)
       --network | --no-network          ...and let their commands use the network (default: gud.network)
       --allow-domain <domain>           ...or only these domains (Claude), e.g. registry.npmjs.org
+      --evidence <file>                 text you already produced (test output, a mutation table, lint output); repeatable
       --no-record                       don't record the reviews beside the glosses
       --dry-run                         print each run's setup and prompt; run no agent (none need be installed)
       --keep                            keep the workspace directories, for inspection
@@ -35,6 +36,26 @@ Each run gets its own disposable clone, and the runs go in parallel. Results are
 ```sh
 git gud review main..feature --agent claude --agent cursor > review.md
 ```
+
+## Evidence, and what reviewers may run
+
+Left alone, reviewers re-run the project's whole test suite themselves, and get capped or timed-out runs. Their time then goes on that instead of the change. So every reviewer's prompt now carries a "Rules for running things" block: do not run the full test suite, run at most single test files within about 8 minutes in total, say "not verified" for anything that would take longer, and mark every finding **verified** or **read**. The honesty reviewer is also told to check the author's claims against the diff and what it can run, and to skip grading necessity and removal candidates by opinion, which `git gloss lint` covers mechanically.
+
+Give reviewers what you already ran with `--evidence <file>` (repeatable). The files are put in every stage's prompt, before the material under review, each in a fenced block labelled with the file's name, as authoritative for what was run and what came out of it. They are still data, not instructions: terminal escapes, control characters, bidi marks and invisible characters (zero-width, tag characters, line separators) are stripped, from the file names and the paths in error messages too. An unterminated escape sequence loses only its introducer, never the text after it. A file that contains the prompt's `---`, blank line, `# Material under review` separator is refused. A file over 128 KiB, or files over 256 KiB together, an unreadable file, a directory, a pipe or other non-regular file (write the text to a regular file first; process substitution is not accepted) or a file with NUL bytes is an error (nothing is truncated, and no reviewer starts). `--dry-run` shows the result. The evidence goes to every stage that runs, including the blind `bugs` stage, so don't pass lint output (it quotes the gloss) to a `bugs` review; run the stages separately.
+
+```
+git gloss lint wip > $TMP/evidence.txt
+git gud review wip --stage honesty --agent claude:haiku --evidence $TMP/evidence.txt
+```
+
+Notes:
+
+- Logs go unredacted to whichever model runs the review: don't pass secrets.
+- `--evidence` reaches the blind `bugs` stage too (see above).
+- The honesty addendum refers to items 2 and 3 of git-gloss's current honesty list by number; re-check it when git-gloss changes that list.
+- C1 control introducers are removed, but their parameter text stays visible as plain text.
+
+The 8-minute budget is an instruction to the reviewer, not something git-gud enforces: git-gud puts no time limit on a reviewer run.
 
 ## How reviewers run
 
