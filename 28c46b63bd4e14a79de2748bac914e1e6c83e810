@@ -1,0 +1,198 @@
+{
+  "gloss": 4,
+  "commit": "28c46b63bd4e14a79de2748bac914e1e6c83e810",
+  "created_at": "2026-10-25T16:18:56.450Z",
+  "annotation": {
+    "version": 1,
+    "task": "Add opt-in adversarial and mutate review stages that make reviewers prove findings",
+    "summary": "Two new stages, outside the default set, whose prompts demand reproduced exploits and mutation-checked tests.",
+    "groups": [
+      {
+        "id": "stage-prompts",
+        "intent": "Add adversarial and mutate stages with their prompts, default and blind sets",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "no adversarial or mutate stages",
+        "impact": "contract",
+        "impact_reason": "Prompt text decides what reviewers run and record; verdict line feeds git-gloss records",
+        "hunks": [
+          "h8",
+          "h9",
+          "h10"
+        ]
+      },
+      {
+        "id": "stage-wiring",
+        "intent": "Accept the new stage names, default to the old three, run new stages in blind clones",
+        "necessity": "required",
+        "serves": "stage-prompts",
+        "removal_impact": "new stages cannot be selected; bare review default would change if mis-wired",
+        "impact": "shared",
+        "impact_reason": "Default stage set and clone gloss visibility for every review run",
+        "hunks": [
+          "h4",
+          "h5",
+          "h6",
+          "h7"
+        ]
+      },
+      {
+        "id": "stage-docs",
+        "intent": "Document the stages, opt-in cost warning, and leftover TODOs",
+        "necessity": "supporting",
+        "serves": "stage-prompts",
+        "removal_impact": "users would not know the stages or their cost",
+        "impact": "local",
+        "hunks": [
+          "h1",
+          "h2",
+          "h3"
+        ]
+      },
+      {
+        "id": "stage-tests",
+        "intent": "Test stage list, defaults, prompt rules, evidence, hostile labels, recording",
+        "necessity": "supporting",
+        "serves": "stage-wiring",
+        "removal_impact": "nothing guards the opt-in default or the prompt rules",
+        "impact": "local",
+        "hunks": [
+          "h11",
+          "h12"
+        ]
+      }
+    ],
+    "attention": {
+      "level": "look",
+      "focus": [
+        "stage-prompts",
+        "stage-wiring"
+      ],
+      "reasons": [
+        "Prompts steer agents that run code; default stage set must stay unchanged"
+      ]
+    }
+  },
+  "hunks": [
+    {
+      "id": "h1",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 4,
+      "oldLines": 7,
+      "newStart": 4,
+      "newLines": 8,
+      "hash": "0159327c9c296dbb"
+    },
+    {
+      "id": "h2",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 28,
+      "oldLines": 6,
+      "newStart": 29,
+      "newLines": 10,
+      "hash": "583a1c2d2fbf2798"
+    },
+    {
+      "id": "h3",
+      "file": "TODO.md",
+      "oldFile": "TODO.md",
+      "oldStart": 10,
+      "oldLines": 3,
+      "newStart": 10,
+      "newLines": 5,
+      "hash": "6d660c735d5c553d"
+    },
+    {
+      "id": "h4",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 1,
+      "oldLines": 11,
+      "newStart": 1,
+      "newLines": 11,
+      "hash": "bfb8429ed9482cd0"
+    },
+    {
+      "id": "h5",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 58,
+      "oldLines": 7,
+      "newStart": 58,
+      "newLines": 7,
+      "hash": "5945f0c5c1d1dc21"
+    },
+    {
+      "id": "h6",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 139,
+      "oldLines": 7,
+      "newStart": 139,
+      "newLines": 7,
+      "hash": "21f20c5c10111e04"
+    },
+    {
+      "id": "h7",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 168,
+      "oldLines": 7,
+      "newStart": 168,
+      "newLines": 7,
+      "hash": "5e31e3bdc319f697"
+    },
+    {
+      "id": "h8",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 4,
+      "oldLines": 8,
+      "newStart": 4,
+      "newLines": 12,
+      "hash": "7683e908124ce7ba"
+    },
+    {
+      "id": "h9",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 117,
+      "oldLines": 6,
+      "newStart": 121,
+      "newLines": 59,
+      "hash": "8efa6b9b5b30bcb9"
+    },
+    {
+      "id": "h10",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 144,
+      "oldLines": 7,
+      "newStart": 201,
+      "newLines": 8,
+      "hash": "dfabae8311b193f4"
+    },
+    {
+      "id": "h11",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 608,
+      "oldLines": 7,
+      "newStart": 608,
+      "newLines": 7,
+      "hash": "a2b346e160f1d975"
+    },
+    {
+      "id": "h12",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 775,
+      "oldLines": 3,
+      "newStart": 775,
+      "newLines": 110,
+      "hash": "df4c0887ac7eaaad"
+    }
+  ]
+}
