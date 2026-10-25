@@ -43,7 +43,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@ok-ggwp/git-gloss": "^0.6.0"
+    "@ok-ggwp/git-gloss": "^0.7.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
