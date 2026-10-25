@@ -1,0 +1,246 @@
+{
+  "gloss": 4,
+  "commit": "02ad750f2c0e38d554e87baf931f9b184e8e6852",
+  "created_at": "2026-10-25T09:31:38.577Z",
+  "annotation": {
+    "version": 1,
+    "task": "Give git gud review --evidence <file> and rules limiting what reviewers run, so they stop re-running the whole test suite",
+    "summary": "New src/evidence.ts reads and sanitizes evidence files; stages.ts inserts a rules block (plus the evidence section and, for honesty, an addendum) before the material separator of every stage prompt; the flag, docs and tests follow.",
+    "groups": [
+      {
+        "id": "evidence-read",
+        "intent": "Bounded, sanitized read of --evidence files",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "No way to hand reviewers the orchestrator's test output; an unbounded read of /dev/zero would hang",
+        "evidence": "test 'bad evidence stops the review before anything starts', 'hostile evidence stays inside one fenced block'",
+        "impact": "module",
+        "hunks": [
+          "h7"
+        ],
+        "notes": "Reads at most cap+1 bytes via O_NONBLOCK fd, refuses directories, FIFOs and sockets. Errors rather than truncating. Cleans file names (labels) and error-message paths to one plain line. Strips OSC/CSI/other escapes, C0/C1 controls bidi marks and invisible characters (same set as git-gloss plain(), except ZWNJ/ZWJ are kept) after the size and NUL checks."
+      },
+      {
+        "id": "prompt-extras",
+        "intent": "Rules block, evidence section and honesty addendum in every stage prompt",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "Reviewers keep running full suites; evidence would not reach any prompt",
+        "evidence": "tests 'rules for running things are in every stage prompt...' and '--evidence files go into every stage prompt...'",
+        "impact": "contract",
+        "impact_reason": "changes the prompt text every reviewer of every stage receives, even without --evidence",
+        "hunks": [
+          "h8",
+          "h9"
+        ],
+        "notes": "git-gloss's honesty prompt cannot be edited, so the text is inserted before the first '---\\n\\n# Material under review' (appended if absent). Evidence uses fenced() so backticks in a file cannot close the block."
+      },
+      {
+        "id": "flag",
+        "intent": "Add repeatable --evidence flag and wire it to the prompts",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "The evidence reader and prompt section would be unreachable from the CLI",
+        "impact": "contract",
+        "impact_reason": "a new public command-line flag and usage string",
+        "hunks": [
+          "h3:2-3",
+          "h5",
+          "h6"
+        ]
+      },
+      {
+        "id": "preamble",
+        "intent": "Preamble defers to the rules for running things",
+        "necessity": "supporting",
+        "serves": "prompt-extras",
+        "removal_impact": "The preamble's 'verify by running' line would sit unqualified beside the rule not to run the full suite",
+        "impact": "module",
+        "hunks": [
+          "h4"
+        ]
+      },
+      {
+        "id": "import",
+        "intent": "Import readEvidence",
+        "necessity": "mechanical",
+        "serves": "flag",
+        "removal_impact": "flag would not compile",
+        "hunks": [
+          "h3:1"
+        ]
+      },
+      {
+        "id": "docs",
+        "intent": "README: flag, why, example, the bugs-stage lint caveat, and that the 8-minute budget is not enforced",
+        "necessity": "supporting",
+        "serves": "flag",
+        "removal_impact": "Users would not know the flag exists, or that the budget is only an instruction (runAgent has no timeout)",
+        "impact": "module",
+        "hunks": [
+          "h1",
+          "h2"
+        ]
+      },
+      {
+        "id": "tests",
+        "intent": "Cover rules, evidence placement and hostile or bad evidence files",
+        "necessity": "supporting",
+        "serves": [
+          "evidence-read",
+          "prompt-extras",
+          "flag"
+        ],
+        "removal_impact": "Nothing would check that evidence stays fenced and before the real separator (even when the change contains the separator text), or that /dev/zero is bounded",
+        "impact": "local",
+        "hunks": [
+          "h10",
+          "h11"
+        ]
+      }
+    ],
+    "alternatives": [
+      {
+        "option": "Edit git-gloss's honesty prompt",
+        "rejected_because": "git-gud must keep working with the bundled git-gloss 0.5.0, which cannot be changed from here"
+      },
+      {
+        "option": "Enforce the time budget with a timeout in runAgent",
+        "rejected_because": "Out of scope; killing an agent loses its report, so the budget stays an instruction"
+      }
+    ],
+    "risks": [
+      "The 8-minute budget is only an instruction to the reviewer",
+      "If git-gloss's honesty prompt ever loses its '---' / '# Material under review' separator, the honesty stage fails with an error instead of putting the text after the material",
+      "The honesty addendum names items 2 and 3 of git-gloss's honesty list by number; it must be re-checked if git-gloss changes that list",
+      "Evidence logs are sent unredacted to the reviewing model, and reach the blind bugs stage too"
+    ],
+    "attention": {
+      "level": "look",
+      "focus": [
+        "evidence-read",
+        "prompt-extras"
+      ],
+      "reasons": [
+        "untrusted file input is read and put in prompts",
+        "prompt text changes for every stage"
+      ]
+    },
+    "author": {
+      "agent": "claude-code",
+      "model": "claude-sonnet-5-5"
+    }
+  },
+  "hunks": [
+    {
+      "id": "h1",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 12,
+      "oldLines": 6,
+      "newStart": 12,
+      "newLines": 7,
+      "hash": "c07daee204d73735"
+    },
+    {
+      "id": "h2",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 36,
+      "oldLines": 6,
+      "newStart": 37,
+      "newLines": 26,
+      "hash": "085bea6a6eb0c418"
+    },
+    {
+      "id": "h3",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 2,
+      "oldLines": 9,
+      "newStart": 2,
+      "newLines": 10,
+      "hash": "4b1dbc3540a1d504"
+    },
+    {
+      "id": "h4",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 25,
+      "oldLines": 8,
+      "newStart": 26,
+      "newLines": 8,
+      "hash": "42822b6245536044"
+    },
+    {
+      "id": "h5",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 44,
+      "oldLines": 12,
+      "newStart": 45,
+      "newLines": 14,
+      "hash": "521fd9550cd71b85"
+    },
+    {
+      "id": "h6",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 82,
+      "oldLines": 7,
+      "newStart": 85,
+      "newLines": 7,
+      "hash": "4f434098e237871e"
+    },
+    {
+      "id": "h7",
+      "file": "src/evidence.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 75,
+      "hash": "d96f1dfeb3a0f0a8"
+    },
+    {
+      "id": "h8",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 1,
+      "oldLines": 6,
+      "newStart": 1,
+      "newLines": 7,
+      "hash": "18cc3b68c0db7ea7"
+    },
+    {
+      "id": "h9",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 116,
+      "oldLines": 9,
+      "newStart": 117,
+      "newLines": 35,
+      "hash": "3483473170c87586"
+    },
+    {
+      "id": "h10",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 6,
+      "oldLines": 7,
+      "newStart": 6,
+      "newLines": 8,
+      "hash": "b0387c35d00c947f"
+    },
+    {
+      "id": "h11",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 365,
+      "oldLines": 3,
+      "newStart": 366,
+      "newLines": 185,
+      "hash": "4b4cc5e0e0e8c71b"
+    }
+  ]
+}
