@@ -2,10 +2,10 @@ import { parseArgs } from 'node:util'
 import { git, gitTry, GudError, resolveTarget, type Target } from '../git.ts'
 import { directText, parseAgent, resolveBin, runAgent, spec as specFor, which, type Access, type Agent } from '../agents.ts'
 import { fenced, gloss, NoGloss, STAGES, stagePrompt, type Stage } from '../stages.ts'
-import { readEvidence } from '../evidence.ts'
+import { cleanLabel, readEvidence } from '../evidence.ts'
 import { createWorkspace, type Workspace } from '../workspace.ts'
 
-export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--browser] [--sandbox [--network | --allow-domain <d>]...] [--evidence <file>]... [--no-record] [--dry-run] [--keep]   review a change with coding agents, each in a disposable clone'
+export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--browser] [--sandbox [--network | --allow-domain <d>]...] [--evidence <file>]... [--evidence-stage <stage>[,<stage>]] [--timeout <minutes>] [--no-record] [--dry-run] [--keep]   review a change with coding agents, each in a disposable clone'
 
 function preamble(agent: Agent, ws: Workspace, t: Target, access: Access): string {
   const what = t.kind === 'wip'
@@ -46,13 +46,35 @@ export async function run(argv: string[]): Promise<number> {
       'dry-run': { type: 'boolean' },
       keep: { type: 'boolean' },
       evidence: { type: 'string', multiple: true },
+      'evidence-stage': { type: 'string' },
+      timeout: { type: 'string' },
     },
     // --no-sandbox, --no-network and --no-browser override the git config defaults.
     allowNegative: true,
   })
-  const stages = (values.stage ?? STAGES.join(',')).split(',').map((s) => s.trim()).filter(Boolean)
-  for (const s of stages) if (!STAGES.includes(s as Stage)) throw new GudError(`unknown stage "${s}" (stages: ${STAGES.join(', ')})`)
+  // Stage names come from the command line: validated, and cleaned before they are echoed.
+  const stageList = (value: string, where: string) => {
+    const list = value.split(',').map((s) => s.trim()).filter(Boolean)
+    for (const s of list) if (!STAGES.includes(s as Stage)) throw new GudError(`unknown stage "${cleanLabel(s)}"${where} (stages: ${STAGES.join(', ')})`)
+    return list as Stage[]
+  }
+  const stages = stageList(values.stage ?? STAGES.join(','), '')
+  // --evidence reaches every stage unless --evidence-stage narrows it.
+  let evidenceStages: Stage[] = stages
+  const only = values['evidence-stage']
+  if (only !== undefined) {
+    evidenceStages = stageList(only, ' in --evidence-stage')
+    if (!evidenceStages.length) throw new GudError(`--evidence-stage takes at least one stage (stages: ${STAGES.join(', ')})`)
+    if (!values.evidence?.length) console.error('note: --evidence-stage has no effect without --evidence')
+  }
   const evidence = readEvidence(values.evidence ?? [])
+  // Minutes per reviewer run; none by default. At most a week keeps the timer's millisecond count in range.
+  let timeoutMin: number | undefined
+  if (values.timeout !== undefined) {
+    timeoutMin = /^(\d+(\.\d*)?|\.\d+)$/.test(values.timeout) ? Number(values.timeout) : NaN
+    if (!(timeoutMin > 0 && timeoutMin <= 10080)) throw new GudError('--timeout takes a positive number of minutes, at most 10080 (a week)')
+    if (process.platform === 'win32') throw new GudError('--timeout needs POSIX process groups (Linux or macOS); on Windows it is not supported')
+  }
   const agents = (values.agent ?? ['claude']).map(parseAgent)
   const max = Number(values.max ?? 5)
   if (!Number.isInteger(max) || max < 1) throw new GudError('--max takes a positive whole number')
@@ -83,9 +105,9 @@ export async function run(argv: string[]): Promise<number> {
   // Build every prompt before starting any agent, so a missing gloss or
   // git-gloss fails fast.
   const prompts: [Stage, string][] = []
-  for (const stage of stages as Stage[]) {
+  for (const stage of stages) {
     try {
-      prompts.push([stage, stagePrompt(stage, target, repo, { max, evidence })])
+      prompts.push([stage, stagePrompt(stage, target, repo, { max, evidence: evidenceStages.includes(stage) ? evidence : [] })])
     } catch (err) {
       if (!(err instanceof NoGloss)) throw err
       console.error(`skipping the ${stage} stage: ${err.message}`)
@@ -138,12 +160,13 @@ export async function run(argv: string[]): Promise<number> {
   // mislead another; the runs go in parallel.
   // On Ctrl-C the agents die with the terminal's signal; remove their sandboxes too.
   const live = new Set<Workspace>()
-  const interrupted = () => {
+  // SIGHUP (terminal closed, ssh dropped) and SIGQUIT end the run the same way; the exit
+  // handler then kills the process groups of timed reviewers, which no longer share our terminal.
+  const interrupted = (code: number) => () => {
     if (!values.keep) for (const ws of live) ws.dispose()
-    process.exit(130)
+    process.exit(code)
   }
-  process.once('SIGINT', interrupted)
-  process.once('SIGTERM', interrupted)
+  for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 130], ['SIGHUP', 129], ['SIGQUIT', 131]] as const) process.once(sig, interrupted(code))
   const results = await Promise.all(runs.map(async (r) => {
     const ws = createWorkspace(repo, target, r.stage !== 'bugs', access.sandbox)
     live.add(ws)
@@ -151,7 +174,7 @@ export async function run(argv: string[]): Promise<number> {
     console.error(`${label(r)}: started`)
     try {
       const spec = specFor(r.agent, bins.get(r.agent.name)!, ws, r.model, access)
-      const res = await runAgent(spec, ws, `${preamble(r.agent, ws, target, access)}\n\n${r.prompt}`)
+      const res = await runAgent(spec, ws, `${preamble(r.agent, ws, target, access)}\n\n${r.prompt}`, { timeoutMin })
       console.error(`${label(r)}: ${res.ok ? 'done' : 'failed'} after ${Math.round((Date.now() - started) / 1000)}s`)
       if (res.ok && res.output && stamp) {
         try {

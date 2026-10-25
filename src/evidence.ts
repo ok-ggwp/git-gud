@@ -13,17 +13,16 @@ const MAX_TOTAL = 256 * 1024
 // text read differently from how it is ordered.
 export function cleanText(s: string): string {
   return s
-    .replace(/\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)/g, '')
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/\x1b[PX^_][^\x1b\n]*\x1b\\/g, '')
-    .replace(/\x1b./g, '')
+    // One pass, so removing a sequence never joins the ESC before it to the character after it.
+    // An ESC followed by ESC starts nothing (the next ESC may); a lone ESC is dropped with the control characters below.
+    .replace(/\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[PX^_][^\x1b\n]*\x1b\\|\x1b(?!\x1b)./g, '')
     .replace(/\r\n?/g, '\n')
     // plus the invisible format characters git-gloss's plain() strips (ZWNJ/ZWJ stay: they hide nothing and valid text needs them)
     .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069\u200b\u200e\u200f\u061c\u180e\u2060-\u2064\ufeff\u{e0000}-\u{e007f}]/gu, '')
 }
 
 // A label or path from the command line is untrusted text too: one line, no control characters.
-function cleanLabel(s: string): string {
+export function cleanLabel(s: string): string {
   return cleanText(s).replace(/\s+/g, ' ').trim()
 }
 

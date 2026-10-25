@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { accessSync, constants, existsSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
+import { cleanText } from './evidence.ts'
 import { gitTry, GudError } from './git.ts'
 import { bwrapArgs, hostSockets, probe, runtimeDir, type Binds } from './sandbox.ts'
 import type { Workspace } from './workspace.ts'
@@ -225,26 +226,71 @@ export function resolveBin(agent: Agent): string {
   return bin
 }
 
+// Process groups led by a timed run's agent, killed with us if we exit while they live
+// (a detached agent no longer gets the terminal's Ctrl-C).
+const groups = new Set<number>()
+let exitHook = false
+const killGroup = (pid: number) => { try { process.kill(-pid, 'SIGKILL') } catch { /* already gone */ } }
+
 // Runs the agent with the prompt on stdin and returns its final message.
-export async function runAgent(spec: RunSpec, ws: Workspace, prompt: string): Promise<{ ok: boolean; output: string; log: string }> {
+// With `timeoutMin` the agent leads its own process group, and the whole group
+// is killed (SIGKILL) when the time is up; that run then fails with "timed out
+// after N min". Without it nothing changes: same group as git-gud, no limit.
+export async function runAgent(spec: RunSpec, ws: Workspace, prompt: string, opts: { timeoutMin?: number } = {}): Promise<{ ok: boolean; output: string; log: string }> {
   if (spec.sandbox) probe(ws.dir, spec.sandbox)
+  const limit = opts.timeoutMin
+  const timed = limit !== undefined
   return new Promise((resolve) => {
     // Windows runs .cmd launchers (how npm installs CLIs) only through the shell.
     const viaShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(spec.cmd)
     const quote = (a: string) => (/^[\w@%+=:,./\\-]+$/.test(a) ? a : `"${a.replace(/"/g, '""')}"`)
     const child = viaShell
       ? spawn([spec.cmd, ...spec.args].map(quote).join(' '), { cwd: spec.cwd, shell: true, stdio: ['pipe', 'pipe', 'pipe'] })
-      : spawn(spec.cmd, spec.args, { cwd: spec.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+      : spawn(spec.cmd, spec.args, { cwd: spec.cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: timed })
     let stdout = ''
     let stderr = ''
+    let timer: NodeJS.Timeout | undefined
+    const finish = (r: { ok: boolean; output: string; log: string }) => {
+      clearTimeout(timer)
+      resolve(r)
+    }
+    const written = () => {
+      const file = spec.outputFile && existsSync(spec.outputFile) ? readFileSync(spec.outputFile, 'utf8').trim() : ''
+      return file || stdout.trim()
+    }
+    // A process that left the group (setsid) may still hold the pipes: let go of them, so git-gud
+    // is not kept alive until that process ends.
+    const release = () => { child.stdout.destroy(); child.stderr.destroy(); child.stdin.destroy(); child.unref() }
+    const pid = child.pid
+    if (limit !== undefined && pid) {
+      groups.add(pid)
+      if (!exitHook) { exitHook = true; process.on('exit', () => { for (const g of groups) killGroup(g) }) }
+      timer = setTimeout(() => {
+        killGroup(pid)
+        groups.delete(pid)
+        // What the reviewer wrote before the deadline goes in the log, never in the review itself.
+        // It is untrusted text: cleaned, and cut to its tail so the header stays whole when the caller truncates the log.
+        const partial = Array.from(cleanText(written())).slice(-3000).join('') // by code point: no lone surrogate at the cut
+        release()
+        finish({ ok: false, output: '', log: `timed out after ${limit} min${partial ? `; output so far:\n${partial}` : ''}` })
+      }, Math.max(1, Math.round(limit * 60_000)))
+      // The agent itself has exited: whatever it left running in its group (holding the pipes open) is
+      // cleaned up now, so 'close' follows; a process that escaped the group is waited for only briefly.
+      child.on('exit', (code) => {
+        killGroup(pid)
+        groups.delete(pid)
+        clearTimeout(timer)
+        timer = setTimeout(() => { release(); finish({ ok: code === 0, output: written(), log: stderr.trim() }) }, 2000)
+      })
+    }
     child.stdout.on('data', (d) => (stdout += d))
     child.stderr.on('data', (d) => (stderr += d))
     child.stdin.on('error', () => { /* the agent exited early; reported below */ })
     child.stdin.end(prompt)
-    child.on('error', (err) => resolve({ ok: false, output: '', log: err.message }))
+    child.on('error', (err) => finish({ ok: false, output: '', log: err.message }))
     child.on('close', (code) => {
-      const file = spec.outputFile && existsSync(spec.outputFile) ? readFileSync(spec.outputFile, 'utf8').trim() : ''
-      resolve({ ok: code === 0, output: file || stdout.trim(), log: stderr.trim() })
+      if (pid) groups.delete(pid)
+      finish({ ok: code === 0, output: written(), log: stderr.trim() })
     })
   })
 }
