@@ -1,0 +1,7 @@
+Put one fenced block at the end of the report, before the VERDICT line: a JSON array with one object per finding ([] if there are none):
+
+```gloss-findings
+[{"id": "f1", "kind": "defect", "severity": "major", "basis": "verified", "where": "src/a.ts:10", "title": "one line", "detail": "why, and what to do"}]
+```
+
+id: 32 characters or fewer of A-Z a-z 0-9 . _ -, unique in the report (f1, f2, ...). kind: defect | mismatch | missing-risk | simplification | unproven. severity: major | minor | nit. basis: verified | read (you ran it and saw it, or you read the code). where (optional, at most 200 characters), title (at most 200), detail (optional, at most 500). At most 200 items. The last gloss-findings block in the report counts; put it at the end. Caps are measured on the raw report text, so a JSON escape such as \u0001 counts as six characters; the whole report may be at most 256 KiB.
