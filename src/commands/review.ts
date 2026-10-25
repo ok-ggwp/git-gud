@@ -1,11 +1,11 @@
 import { parseArgs } from 'node:util'
 import { git, gitTry, GudError, resolveTarget, type Target } from '../git.ts'
 import { directText, parseAgent, resolveBin, runAgent, spec as specFor, which, type Access, type Agent } from '../agents.ts'
-import { fenced, gloss, NoGloss, STAGES, stagePrompt, type Stage } from '../stages.ts'
+import { BLIND_STAGES, DEFAULT_STAGES, fenced, gloss, NoGloss, STAGES, stagePrompt, type Stage } from '../stages.ts'
 import { cleanLabel, readEvidence } from '../evidence.ts'
 import { createWorkspace, type Workspace } from '../workspace.ts'
 
-export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--browser] [--sandbox [--network | --allow-domain <d>]...] [--evidence <file>]... [--evidence-stage <stage>[,<stage>]] [--timeout <minutes>] [--no-record] [--dry-run] [--keep]   review a change with coding agents, each in a disposable clone'
+export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve,adversarial,mutate] [--agent <name>[:<model>]]... [--max <n>] [--browser] [--sandbox [--network | --allow-domain <d>]...] [--evidence <file>]... [--evidence-stage <stage>[,<stage>]] [--timeout <minutes>] [--no-record] [--dry-run] [--keep]   review a change with coding agents, each in a disposable clone'
 
 function preamble(agent: Agent, ws: Workspace, t: Target, access: Access): string {
   const what = t.kind === 'wip'
@@ -58,7 +58,7 @@ export async function run(argv: string[]): Promise<number> {
     for (const s of list) if (!STAGES.includes(s as Stage)) throw new GudError(`unknown stage "${cleanLabel(s)}"${where} (stages: ${STAGES.join(', ')})`)
     return list as Stage[]
   }
-  const stages = stageList(values.stage ?? STAGES.join(','), '')
+  const stages = stageList(values.stage ?? DEFAULT_STAGES.join(','), '')
   // --evidence reaches every stage unless --evidence-stage narrows it.
   let evidenceStages: Stage[] = stages
   const only = values['evidence-stage']
@@ -139,7 +139,7 @@ export async function run(argv: string[]): Promise<number> {
 
   if (values['dry-run']) {
     for (const r of runs) {
-      const ws = createWorkspace(repo, target, r.stage !== 'bugs', access.sandbox)
+      const ws = createWorkspace(repo, target, !BLIND_STAGES.includes(r.stage), access.sandbox)
       try {
         const bin = bins.get(r.agent.name)
         const spec = bin ? specFor(r.agent, bin, ws, r.model, access) : null
@@ -168,7 +168,7 @@ export async function run(argv: string[]): Promise<number> {
   }
   for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 130], ['SIGHUP', 129], ['SIGQUIT', 131]] as const) process.once(sig, interrupted(code))
   const results = await Promise.all(runs.map(async (r) => {
-    const ws = createWorkspace(repo, target, r.stage !== 'bugs', access.sandbox)
+    const ws = createWorkspace(repo, target, !BLIND_STAGES.includes(r.stage), access.sandbox)
     live.add(ws)
     const started = Date.now()
     console.error(`${label(r)}: started`)

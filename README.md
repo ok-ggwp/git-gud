@@ -4,7 +4,8 @@ Have coding agents review a change in a disposable clone, where they can run the
 
 ```
 git gud review [<commit>|<range>|wip]   review HEAD, a branch (main..feature) or uncommitted work
-      --stage bugs,honesty,improve      which reviews to run (default: all three)
+      --stage bugs,honesty,improve,adversarial,mutate
+                                        which reviews to run (default: bugs,honesty,improve; adversarial and mutate are opt-in)
       --agent <name>[:<model>]          who reviews: claude, codex or cursor (default: claude);
                                         repeat for several, e.g. --agent claude --agent cursor:gpt-5
       --max <n>                         at most n improvement suggestions (default: 5)
@@ -28,6 +29,10 @@ git gud agents                          which reviewers are installed and logged
 | `bugs` | Is anything broken? Defects only: wrong behaviour, edge cases, security, races, regressions, tests that don't test what they claim. | **No**, so it forms its own view of what the change should do. It does see the commit message. |
 | `honesty` | Does the gloss tell the truth? Does each group do what it says, is its necessity graded fairly, what could be cut? This is `git gloss review`'s prompt. | Yes |
 | `improve` | What could be simpler, reused or faster? Ranked and capped, so it stays short. | Yes, when there is one |
+| `adversarial` (opt-in) | Can each claimed defect be made to happen? The reviewer must write and run an exploit or a failing test; a finding counts only with `REPRODUCED:`, the exact command and its real output tail, and anything else is listed as `NOT REPRODUCED:` under "unproven". Use it on high-impact groups and untrusted-input boundaries (text rendered to a terminal or page, notes and data from remotes, config parsing, servers). | **No** (it does see the commit message), like `bugs` |
+| `mutate` (opt-in) | Do the new or changed tests fail when the behaviour they guard breaks? For each test that guards a high-impact behaviour, the reviewer flips or no-ops the one source line it depends on, runs only that test file, and reports a table of test, mutated line and result (RED, STAYED GREEN = vacuous, could not run), restoring the file with `cp` and checking it with `cmp`. A test that stays green is a finding. Use it on any change with new tests on guards. | **No** (it does see the commit message), like `bugs` |
+
+`adversarial` and `mutate` run code in the clone, use more tokens and take minutes, so a bare `git gud review` does not run them: ask for them with `--stage adversarial,mutate` (add `--timeout` and, for code you don't trust, `--sandbox`). They end with the same `VERDICT: CLEAN` or `VERDICT: ISSUES` line as the other stages, so the record beside the gloss is unchanged. Reviewers are told to work only in the clone, never use the network, and stay in the time budget of the rules for running things; that is an instruction, not enforcement, and both stages run the repository's own code, so `--sandbox` is the real control.
 
 The split comes from a small experiment (five commits with 20 known defects, reviewed with and without their gloss): showing a reviewer the gloss didn't help it find bugs and seemed to anchor it on the author's framing, while the gloss is what makes claim-versus-code mismatches and over-building visible. So bug-hunting runs blind, and the gloss is used where it helps. Reviewer diversity mattered more than the gloss, so several agents can review the same change.
 
