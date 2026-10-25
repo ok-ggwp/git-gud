@@ -13,6 +13,8 @@ git gud review [<commit>|<range>|wip]   review HEAD, a branch (main..feature) or
       --network | --no-network          ...and let their commands use the network (default: gud.network)
       --allow-domain <domain>           ...or only these domains (Claude), e.g. registry.npmjs.org
       --evidence <file>                 text you already produced (test output, a mutation table, lint output); repeatable
+      --evidence-stage <stage>[,<stage>]  only these stages get the evidence (default: every stage that runs)
+      --timeout <minutes>               kill a reviewer run that takes longer (default: no limit; not on Windows)
       --no-record                       don't record the reviews beside the glosses
       --dry-run                         print each run's setup and prompt; run no agent (none need be installed)
       --keep                            keep the workspace directories, for inspection
@@ -41,21 +43,23 @@ git gud review main..feature --agent claude --agent cursor > review.md
 
 Left alone, reviewers re-run the project's whole test suite themselves, and get capped or timed-out runs. Their time then goes on that instead of the change. So every reviewer's prompt now carries a "Rules for running things" block: do not run the full test suite, run at most single test files within about 8 minutes in total, say "not verified" for anything that would take longer, and mark every finding **verified** or **read**. The honesty reviewer is also told to check the author's claims against the diff and what it can run, and to skip grading necessity and removal candidates by opinion, which `git gloss lint` covers mechanically.
 
-Give reviewers what you already ran with `--evidence <file>` (repeatable). The files are put in every stage's prompt, before the material under review, each in a fenced block labelled with the file's name, as authoritative for what was run and what came out of it. They are still data, not instructions: terminal escapes, control characters, bidi marks and invisible characters (zero-width, tag characters, line separators) are stripped, from the file names and the paths in error messages too. An unterminated escape sequence loses only its introducer, never the text after it. A file that contains the prompt's `---`, blank line, `# Material under review` separator is refused. A file over 128 KiB, or files over 256 KiB together, an unreadable file, a directory, a pipe or other non-regular file (write the text to a regular file first; process substitution is not accepted) or a file with NUL bytes is an error (nothing is truncated, and no reviewer starts). `--dry-run` shows the result. The evidence goes to every stage that runs, including the blind `bugs` stage, so don't pass lint output (it quotes the gloss) to a `bugs` review; run the stages separately.
+Give reviewers what you already ran with `--evidence <file>` (repeatable). The files are put in every stage's prompt, before the material under review, each in a fenced block labelled with the file's name, as authoritative for what was run and what came out of it. They are still data, not instructions: terminal escapes, control characters, bidi marks and invisible characters (zero-width, tag characters, line separators) are stripped, from the file names and the paths in error messages too. An unterminated escape sequence loses only its introducer, never the text after it. A file that contains the prompt's `---`, blank line, `# Material under review` separator is refused. A file over 128 KiB, or files over 256 KiB together, an unreadable file, a directory, a pipe or other non-regular file (write the text to a regular file first; process substitution is not accepted) or a file with NUL bytes is an error (nothing is truncated, and no reviewer starts). `--dry-run` shows the result. By default the evidence goes to every stage that runs, including the blind `bugs` stage, so lint output (it quotes the gloss) would reach it; `--evidence-stage honesty,improve` limits it to the stages you name.
 
 ```
 git gloss lint wip > $TMP/evidence.txt
 git gud review wip --stage honesty --agent claude:haiku --evidence $TMP/evidence.txt
 ```
 
+In a review with several stages, `--evidence-stage honesty,improve` keeps the evidence (lint output quotes the gloss) from the blind `bugs` stage.
+
 Notes:
 
 - Logs go unredacted to whichever model runs the review: don't pass secrets.
-- `--evidence` reaches the blind `bugs` stage too (see above).
+- Without `--evidence-stage`, `--evidence` reaches the blind `bugs` stage too (see above).
 - The honesty addendum refers to items 2 and 3 of git-gloss's current honesty list by number; re-check it when git-gloss changes that list.
 - C1 control introducers are removed, but their parameter text stays visible as plain text.
 
-The 8-minute budget is an instruction to the reviewer, not something git-gud enforces: git-gud puts no time limit on a reviewer run.
+The 8-minute budget is an instruction to the reviewer. `--timeout <minutes>` enforces a limit per reviewer run: the reviewer is started as the leader of its own process group, and when the time is up git-gud sends SIGKILL to the whole group (the agent and the commands it started). That run is reported as failed, "timed out after N min", with whatever the reviewer had written so far in the failure text (not as a review), and the other runs continue. A reviewer that finishes in time keeps its review even if it left a background process behind: that process is killed once the reviewer exits. Being in its own group, the reviewer no longer receives the terminal's Ctrl-C; git-gud's exit handler covers that, killing every reviewer's group when git-gud exits, including on Ctrl-C, SIGTERM, SIGHUP (terminal closed) or SIGQUIT (not on SIGKILL of git-gud itself). A timed reviewer is also a session leader with no controlling terminal, so anything that needs `/dev/tty` (an ssh or git credential passphrase prompt) fails with `--timeout` and works without it. An agent that calls `setsid` (or otherwise leaves the group) escapes the kill. Without `--timeout` there is no limit and no separate group; the one change for every run is that SIGHUP and SIGQUIT now clean up the workspaces and exit (129, 131) like Ctrl-C and SIGTERM do, where before SIGHUP just killed git-gud and SIGQUIT dumped core. After a timeout git-gud lets go of the reviewer's pipes, so it exits when the results are printed even if a process that escaped the group is still running. `--timeout` is refused on Windows (no process groups).
 
 ## How reviewers run
 

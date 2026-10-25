@@ -106,7 +106,7 @@ Look for:
 
 Bugs and whether the gloss is honest are covered by other reviews; leave them out.
 
-Give at most ${max} suggestions, ranked by benefit for the effort. For each: where (group id, or file and line), the suggestion, why it is better, roughly how big the change is, and whether you checked it (for example, applied it in the clone and the tests still pass). Fewer, stronger suggestions beat a long list; if the change is already lean, say so and stop.
+Give at most ${max} suggestions, ranked by benefit for the effort. For each: where (group id, or file and line), the suggestion, why it is better, roughly how big the change is, and whether you checked it (for example, applied it in the clone and ran the relevant single test file(s)). Fewer, stronger suggestions beat a long list; if the change is already lean, say so and stop.
 
 End your report with one line on its own: \`VERDICT: CLEAN\` if the change is already lean and nothing is worth changing, otherwise \`VERDICT: ISSUES\`. It is recorded with the review.
 
