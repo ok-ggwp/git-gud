@@ -2,9 +2,10 @@ import { parseArgs } from 'node:util'
 import { git, gitTry, GudError, resolveTarget, type Target } from '../git.ts'
 import { directText, parseAgent, resolveBin, runAgent, spec as specFor, which, type Access, type Agent } from '../agents.ts'
 import { fenced, gloss, NoGloss, STAGES, stagePrompt, type Stage } from '../stages.ts'
+import { readEvidence } from '../evidence.ts'
 import { createWorkspace, type Workspace } from '../workspace.ts'
 
-export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--browser] [--sandbox [--network | --allow-domain <d>]...] [--no-record] [--dry-run] [--keep]   review a change with coding agents, each in a disposable clone'
+export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve] [--agent <name>[:<model>]]... [--max <n>] [--browser] [--sandbox [--network | --allow-domain <d>]...] [--evidence <file>]... [--no-record] [--dry-run] [--keep]   review a change with coding agents, each in a disposable clone'
 
 function preamble(agent: Agent, ws: Workspace, t: Target, access: Access): string {
   const what = t.kind === 'wip'
@@ -25,8 +26,8 @@ and run them. To run the code under review, use the clone's own entry points, bu
 
 ${config.join(' ')} Read the change's versions with git show HEAD:<path> if they matter to the review.` : ''}
 
-Verify findings by running them where you can. In your report, mark each finding as **verified** (you ran something
-that shows it) or **read** (from reading the code only).`
+Verify findings by running them where you can, within the rules for running things below. In your report, mark each
+finding as **verified** (you ran something that shows it) or **read** (from reading the code only).`
 }
 
 export async function run(argv: string[]): Promise<number> {
@@ -44,12 +45,14 @@ export async function run(argv: string[]): Promise<number> {
       record: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       keep: { type: 'boolean' },
+      evidence: { type: 'string', multiple: true },
     },
     // --no-sandbox, --no-network and --no-browser override the git config defaults.
     allowNegative: true,
   })
   const stages = (values.stage ?? STAGES.join(',')).split(',').map((s) => s.trim()).filter(Boolean)
   for (const s of stages) if (!STAGES.includes(s as Stage)) throw new GudError(`unknown stage "${s}" (stages: ${STAGES.join(', ')})`)
+  const evidence = readEvidence(values.evidence ?? [])
   const agents = (values.agent ?? ['claude']).map(parseAgent)
   const max = Number(values.max ?? 5)
   if (!Number.isInteger(max) || max < 1) throw new GudError('--max takes a positive whole number')
@@ -82,7 +85,7 @@ export async function run(argv: string[]): Promise<number> {
   const prompts: [Stage, string][] = []
   for (const stage of stages as Stage[]) {
     try {
-      prompts.push([stage, stagePrompt(stage, target, repo, { max })])
+      prompts.push([stage, stagePrompt(stage, target, repo, { max, evidence })])
     } catch (err) {
       if (!(err instanceof NoGloss)) throw err
       console.error(`skipping the ${stage} stage: ${err.message}`)
