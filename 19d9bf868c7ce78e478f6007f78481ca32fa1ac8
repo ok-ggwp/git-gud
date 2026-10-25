@@ -1,0 +1,353 @@
+{
+  "gloss": 4,
+  "commit": "19d9bf868c7ce78e478f6007f78481ca32fa1ac8",
+  "created_at": "2026-10-25T11:52:38.805Z",
+  "annotation": {
+    "version": 1,
+    "task": "gudfix: fix the follow-ups from the --evidence reviews: cleanText ESC handling, improve prompt wording, honesty-stage separator test, per-stage evidence, an enforced reviewer timeout",
+    "summary": "cleanText becomes a single pass; the improve prompt stops asking for a full test run; the separator test covers the honesty stage; --evidence-stage limits which stages get the evidence; --timeout <minutes> kills a reviewer's whole process group (SIGKILL) when time is up. README and TODO updated.",
+    "groups": [
+      {
+        "id": "clean-text",
+        "intent": "cleanText strips escapes in one pass",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "A bare ESC ESC [31m would still lose the visible character after it",
+        "evidence": "test 'a bare ESC ESC [31m loses no visible character'",
+        "impact": "sensitive",
+        "impact_reason": "sanitiser for untrusted text that goes into reviewer prompts; a wrong regex lets control text through or eats text",
+        "hunks": [
+          "h11:1-7"
+        ],
+        "notes": "One alternation regex, so a removal never joins an earlier ESC to the next character; ESC followed by ESC starts nothing, a lone ESC goes with the control characters."
+      },
+      {
+        "id": "clean-text-test",
+        "intent": "Test the ESC ESC case and the other sequences",
+        "necessity": "supporting",
+        "serves": "clean-text",
+        "removal_impact": "The single-pass behaviour would have no test",
+        "impact": "module",
+        "hunks": [
+          "h17:1-12"
+        ]
+      },
+      {
+        "id": "improve-wording",
+        "intent": "Improve prompt asks for single test files, not a full run",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "The improve prompt would contradict the rules block (single test files only)",
+        "evidence": "test 'the improve prompt says single test files were run'; dry-run diff shows only this line changed",
+        "impact": "contract",
+        "impact_reason": "prompt text that every improve reviewer receives",
+        "hunks": [
+          "h12"
+        ]
+      },
+      {
+        "id": "improve-wording-test",
+        "intent": "Test the improve wording and that other stages are unchanged",
+        "necessity": "supporting",
+        "serves": "improve-wording",
+        "removal_impact": "The reworded line could regress unseen",
+        "impact": "module",
+        "hunks": [
+          "h17:13-20"
+        ]
+      },
+      {
+        "id": "honesty-sep-test",
+        "intent": "Separator test also covers the honesty stage",
+        "necessity": "supporting",
+        "serves": "evidence-stage",
+        "removal_impact": "A fake separator in material would be untested for honesty; the test also checks the evidence lands in every stage",
+        "impact": "module",
+        "hunks": [
+          "h16"
+        ],
+        "notes": "Glosses the fake commit so the honesty stage can run; glossed material never holds the raw separator, so honesty and improve assert one separator."
+      },
+      {
+        "id": "evidence-stage",
+        "intent": "--evidence-stage limits which stages get the evidence",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "Lint output could not be kept out of the blind bugs stage",
+        "evidence": "tests for --evidence-stage",
+        "impact": "contract",
+        "impact_reason": "new CLI flag and its stage-name validation, which also cleans echoed names",
+        "hunks": [
+          "h6:1-4",
+          "h7:1",
+          "h7:3-19",
+          "h8:1-4",
+          "h11:8-9"
+        ],
+        "notes": "Shares the stage parser with --stage; stage names are cleaned with cleanLabel (now exported) before being echoed. Also edits the shared usage line."
+      },
+      {
+        "id": "evidence-stage-tests",
+        "intent": "Tests for the stage filter and hostile stage names",
+        "necessity": "supporting",
+        "serves": "evidence-stage",
+        "removal_impact": "Filtering, validation and no-raw-echo would be untested",
+        "impact": "module",
+        "hunks": [
+          "h17:21-64"
+        ]
+      },
+      {
+        "id": "timeout",
+        "intent": "--timeout kills the reviewer's whole process group",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "A hung reviewer would run forever; the 8-minute budget stays only a request",
+        "evidence": "tests for group kill, SIGINT/SIGTERM/SIGHUP/SIGQUIT, finished-with-leftover and partial output; mutations (empty exit handler, leader-only kill, end on close, no SIGHUP/SIGQUIT handler, no tail cut, no cleanText) each turn a test red; escaped-process test and the release() mutation (red)",
+        "impact": "sensitive",
+        "impact_reason": "sends SIGKILL to a negative pid (process group) and installs an exit hook that kills groups",
+        "hunks": [
+          "h4",
+          "h5",
+          "h6:4",
+          "h7:2",
+          "h7:20-26",
+          "h9",
+          "h10"
+        ],
+        "notes": "Detached (own group) only when --timeout is given; a normal run is unchanged except for the signal handling. Group ids are removed on close and on timeout so a finished run's group is not signalled again; the leader's pid is still signalled once on its exit, after it was reaped, which leaves a tiny pid-reuse window (in TODO). The failing run reports 'timed out after N min'. Parse accepts a plain positive decimal up to a week; Windows is refused in review.ts before any workspace. On the leader exiting, its group is killed so a leftover background process cannot hold the run open; a finished review is kept. On timeout, partial output goes to the log, not the output. A reviewer that calls setsid escapes. SIGHUP and SIGQUIT are handled like SIGINT/SIGTERM (exit codes 129/131) so the exit handler runs when the terminal closes. Partial output is cleaned (cleanText) and cut to its last 3000 characters so the header survives the 4000-character cut in the failure block. Overlap: hunk h6 line 4 (the shared usage line) is listed here and in evidence-stage, since both add a flag to it. SIGHUP/SIGQUIT handling applies to ALL runs, timed or not: untimed runs now dispose their workspaces and exit 129/131 where before SIGHUP just killed git-gud and SIGQUIT dumped core. After a timeout or the 2 s fallback git-gud destroys the reviewer's pipes and unrefs it, so it exits even if a process that escaped the group holds them."
+      },
+      {
+        "id": "timeout-tests",
+        "intent": "Tests for --timeout parsing, group kill and exit hook",
+        "necessity": "supporting",
+        "serves": "timeout",
+        "removal_impact": "The kill, exit hook and no-timeout behaviour would be untested",
+        "impact": "module",
+        "hunks": [
+          "h13",
+          "h14",
+          "h15",
+          "h17:65-212"
+        ],
+        "notes": "The shared gud() helper gains a 120s spawnSync timeout so a regression that leaves a pipe open fails instead of hanging."
+      },
+      {
+        "id": "docs",
+        "intent": "README documents the new flags and the timeout",
+        "necessity": "supporting",
+        "serves": [
+          "evidence-stage",
+          "timeout"
+        ],
+        "removal_impact": "Users would not know the flags, or that the bugs caveat is now controllable",
+        "impact": "module",
+        "hunks": [
+          "h1",
+          "h2"
+        ]
+      }
+    ],
+    "alternatives": [
+      {
+        "option": "SIGTERM first, then SIGKILL after a grace period",
+        "rejected_because": "More code and timers; left as a follow-up in TODO"
+      }
+    ],
+    "risks": [
+      "SIGKILL gives no chance to flush a partial report",
+      "Past 701 repeats of one section number the later ones share the suffix zz and their refs merge; recorded in TODO",
+      "A SIGKILL of git-gud itself leaves detached reviewers running; the group is signalled by the leader pid after it was reaped",
+      "SIGHUP/SIGQUIT now exit 129/131 for every run (untimed too); untested for untimed runs",
+      "Output still streaming from an escaped process after the 2 s grace is cut, and the run is reported ok"
+    ],
+    "attention": {
+      "level": "must-read",
+      "focus": [
+        "timeout",
+        "clean-text"
+      ],
+      "reasons": [
+        "timeout signals a process group and kills on exit",
+        "clean-text sanitises untrusted text bound for prompts",
+        "evidence-stage adds a CLI contract"
+      ]
+    },
+    "author": {
+      "agent": "claude-code",
+      "model": "claude-sonnet-5-5"
+    }
+  },
+  "hunks": [
+    {
+      "id": "h1",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 13,
+      "oldLines": 6,
+      "newStart": 13,
+      "newLines": 8,
+      "hash": "ba0047da200019a5"
+    },
+    {
+      "id": "h2",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 41,
+      "oldLines": 21,
+      "newStart": 43,
+      "newLines": 23,
+      "hash": "d3afd360135dee10"
+    },
+    {
+      "id": "h3",
+      "file": "TODO.md",
+      "oldFile": "TODO.md",
+      "oldStart": 2,
+      "oldLines": 10,
+      "newStart": 2,
+      "newLines": 11,
+      "hash": "5e9ee6f80b475622"
+    },
+    {
+      "id": "h4",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 2,
+      "oldLines": 6,
+      "newStart": 2,
+      "newLines": 7,
+      "hash": "9ab499738a3c3544"
+    },
+    {
+      "id": "h5",
+      "file": "src/agents.ts",
+      "oldFile": "src/agents.ts",
+      "oldStart": 225,
+      "oldLines": 26,
+      "newStart": 226,
+      "newLines": 71,
+      "hash": "01e31dc3f31183fb"
+    },
+    {
+      "id": "h6",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 2,
+      "oldLines": 10,
+      "newStart": 2,
+      "newLines": 10,
+      "hash": "f60af47cf236f54c"
+    },
+    {
+      "id": "h7",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 46,
+      "oldLines": 13,
+      "newStart": 46,
+      "newLines": 35,
+      "hash": "71f580dc3a4ab604"
+    },
+    {
+      "id": "h8",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 83,
+      "oldLines": 9,
+      "newStart": 105,
+      "newLines": 9,
+      "hash": "e4d17d402de837d4"
+    },
+    {
+      "id": "h9",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 138,
+      "oldLines": 12,
+      "newStart": 160,
+      "newLines": 13,
+      "hash": "d4e1c2d4f44016d7"
+    },
+    {
+      "id": "h10",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 151,
+      "oldLines": 7,
+      "newStart": 174,
+      "newLines": 7,
+      "hash": "2131b46ebd428c0b"
+    },
+    {
+      "id": "h11",
+      "file": "src/evidence.ts",
+      "oldFile": "src/evidence.ts",
+      "oldStart": 13,
+      "oldLines": 17,
+      "newStart": 13,
+      "newLines": 16,
+      "hash": "542bb3f191fc7101"
+    },
+    {
+      "id": "h12",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 106,
+      "oldLines": 7,
+      "newStart": 106,
+      "newLines": 7,
+      "hash": "84adf3d1a5fda4f8"
+    },
+    {
+      "id": "h13",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 1,
+      "oldLines": 6,
+      "newStart": 1,
+      "newLines": 6,
+      "hash": "7192b5c1922971cd"
+    },
+    {
+      "id": "h14",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 10,
+      "oldLines": 6,
+      "newStart": 10,
+      "newLines": 7,
+      "hash": "a2620876ff4b61e2"
+    },
+    {
+      "id": "h15",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 45,
+      "oldLines": 7,
+      "newStart": 46,
+      "newLines": 7,
+      "hash": "223dad03d8d7e73f"
+    },
+    {
+      "id": "h16",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 473,
+      "oldLines": 18,
+      "newStart": 474,
+      "newLines": 32,
+      "hash": "7a50760413d9496e"
+    },
+    {
+      "id": "h17",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 548,
+      "oldLines": 3,
+      "newStart": 563,
+      "newLines": 215,
+      "hash": "21fadf789d832a81"
+    }
+  ]
+}
