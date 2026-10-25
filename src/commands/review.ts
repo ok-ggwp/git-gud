@@ -1,8 +1,9 @@
 import { parseArgs } from 'node:util'
 import { git, gitTry, GudError, resolveTarget, type Target } from '../git.ts'
 import { directText, parseAgent, resolveBin, runAgent, spec as specFor, which, type Access, type Agent } from '../agents.ts'
-import { BLIND_STAGES, DEFAULT_STAGES, fenced, gloss, NoGloss, STAGES, stagePrompt, type Stage } from '../stages.ts'
-import { cleanLabel, readEvidence } from '../evidence.ts'
+import { BLIND_STAGES, DEFAULT_STAGES, fenced, gloss, NoGloss, RecordRefused, STAGES, stagePrompt, type Stage } from '../stages.ts'
+import { cleanLabel, cleanText, readEvidence } from '../evidence.ts'
+import { repairPrompt, saveRawReport } from '../record.ts'
 import { createWorkspace, type Workspace } from '../workspace.ts'
 
 export const usage = 'review [<commit> | <range> | wip] [--stage bugs,honesty,improve,adversarial,mutate] [--agent <name>[:<model>]]... [--max <n>] [--browser] [--sandbox [--network | --allow-domain <d>]...] [--evidence <file>]... [--evidence-stage <stage>[,<stage>]] [--timeout <minutes>] [--no-record] [--dry-run] [--keep]   review a change with coding agents, each in a disposable clone'
@@ -174,14 +175,44 @@ export async function run(argv: string[]): Promise<number> {
     console.error(`${label(r)}: started`)
     try {
       const spec = specFor(r.agent, bins.get(r.agent.name)!, ws, r.model, access)
-      const res = await runAgent(spec, ws, `${preamble(r.agent, ws, target, access)}\n\n${r.prompt}`, { timeoutMin })
+      const prompt = `${preamble(r.agent, ws, target, access)}\n\n${r.prompt}`
+      let res = await runAgent(spec, ws, prompt, { timeoutMin })
       console.error(`${label(r)}: ${res.ok ? 'done' : 'failed'} after ${Math.round((Date.now() - started) / 1000)}s`)
       if (res.ok && res.output && stamp) {
+        const record = (report: string) => gloss(['reviews', '--record'], repo, JSON.stringify({
+          stage: r.stage, agent: r.agent.name, model: r.model, mode: access.sandbox ? 'sandboxed' : 'direct',
+          target: target.rev, findings: report, stamp,
+        }))
         try {
-          gloss(['reviews', '--record'], repo, JSON.stringify({
-            stage: r.stage, agent: r.agent.name, model: r.model, mode: access.sandbox ? 'sandboxed' : 'direct',
-            target: target.rev, findings: res.output, stamp,
-          }))
+          try {
+            record(res.output)
+          } catch (err) {
+            if (!(err instanceof RecordRefused)) throw err
+            // git-gloss refused the report (no usable gloss-findings block): one retry, with its reasons.
+            // The retry shares the run's --timeout, so it gets what is left of it.
+            const left = timeoutMin === undefined ? undefined : timeoutMin - (Date.now() - started) / 60_000
+            console.error(`${label(r)}: git-gloss refused the report; asking the reviewer once to fix it`)
+            const first = res.output
+            const again = left !== undefined && left <= 0
+              ? { ok: false, output: '', log: 'no time left in --timeout for a retry' }
+              : await runAgent(spec, ws, `${preamble(r.agent, ws, target, access)}\n\n${repairPrompt(err.message, first, r.stage)}`, { timeoutMin: left })
+            try {
+              if (again.ok && !again.output) { const e = new RecordRefused(err.message); (e as { empty?: boolean }).empty = true; throw e }
+              if (!again.ok) throw err
+              record(again.output)
+              res = again
+              console.error(`${label(r)}: recorded after the retry`)
+            } catch (err2) {
+              if (!(err2 instanceof RecordRefused)) throw err2
+              // Not lost: the report is kept in a private file, and this stage fails.
+              const empty = (err2 as { empty?: boolean }).empty === true
+              const file = saveRawReport(`${r.stage}-${r.agent.name}`, again.ok && again.output ? again.output : first)
+              const reason = cleanText(err2.message).split('\n\n')[0]
+              const msg = `git-gloss refused the report${empty ? ' and the retry returned nothing' : again.ok ? ' again after the retry' : ` and the retry did not finish (${cleanText(again.log).slice(0, 200)})`}; nothing was recorded. The raw report is saved at ${file}\n${reason}`
+              console.error(`${label(r)}: ${msg}`)
+              return { r, ok: false, output: '', log: msg }
+            }
+          }
         } catch (err) {
           if (!(err instanceof GudError)) throw err
           console.error(`${label(r)}: recording the review failed: ${err.message}`)
