@@ -1,0 +1,301 @@
+{
+  "gloss": 4,
+  "commit": "7305778afd4def6fe909738c7c7917478cd3a672",
+  "created_at": "2026-10-25T19:44:38.332Z",
+  "annotation": {
+    "version": 1,
+    "task": "Make every git-gud reviewer produce git-gloss's mandatory gloss-findings block, retry once when git-gloss refuses a report, and save the raw report if the retry fails",
+    "summary": "Every stage prompt carries git-gloss's block spec plus a stage mapping; a refused report gets one repair retry, then is saved to a 0600 file and the stage fails; tests use the real new git-gloss through GIT_GLOSS_BIN.",
+    "groups": [
+      {
+        "id": "spec-prompts",
+        "intent": "Embed the block spec and per-stage mapping in every stage prompt; GIT_GLOSS_BIN override",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "Reviewers would not know to emit the block, and git-gloss would refuse every report",
+        "evidence": "prompt tests for all five stages",
+        "impact": "contract",
+        "impact_reason": "Prompt text must match the spec git-gloss validates against",
+        "hunks": [
+          "h7",
+          "h8",
+          "h9",
+          "h10",
+          "h11",
+          "h12",
+          "h13",
+          "h14"
+        ]
+      },
+      {
+        "id": "review-flow",
+        "intent": "Retry once on a refused report; save the raw report and fail the stage if still refused",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "A refused report would be lost or recorded nowhere with no second chance",
+        "evidence": "retry, never-valid and --no-record tests",
+        "impact": "shared",
+        "hunks": [
+          "h4",
+          "h5"
+        ]
+      },
+      {
+        "id": "repair-record",
+        "intent": "Repair prompt with sanitised, capped, fenced refusal text and report; private raw-report file",
+        "necessity": "required",
+        "serves": "task",
+        "removal_impact": "No retry prompt and no place to keep an unrecordable report",
+        "evidence": "hostile repair prompt test",
+        "impact": "module",
+        "hunks": [
+          "h6"
+        ]
+      },
+      {
+        "id": "tests",
+        "intent": "Tests against the real git-gloss, spec fixture, and block in existing stub reports",
+        "necessity": "supporting",
+        "serves": [
+          "spec-prompts",
+          "review-flow",
+          "repair-record"
+        ],
+        "removal_impact": "The contract and the sanitising would be untested",
+        "evidence": "mutation checks turned them red",
+        "impact": "local",
+        "hunks": [
+          "h15",
+          "h16",
+          "h17",
+          "h18",
+          "h19"
+        ]
+      },
+      {
+        "id": "docs",
+        "intent": "README section on structured findings, retry and saved report; TODO items",
+        "necessity": "supporting",
+        "serves": [
+          "spec-prompts",
+          "review-flow"
+        ],
+        "removal_impact": "Users would not know about the mandatory block, the retry or the saved file",
+        "impact": "local",
+        "hunks": [
+          "h1",
+          "h2",
+          "h3"
+        ]
+      }
+    ],
+    "risks": [
+      "The honesty stage against a git-gloss older than 0.8 relies on git-gud's own spec text",
+      "The tests that exercise recording skip without GIT_GLOSS_BIN",
+      "Raw reports saved after a failed retry are never cleaned up"
+    ],
+    "attention": {
+      "level": "careful",
+      "focus": [
+        "spec-prompts",
+        "review-flow"
+      ],
+      "reasons": [
+        "Prompt text must stay identical to git-gloss's spec",
+        "New retry path around recording and timeouts"
+      ]
+    }
+  },
+  "hunks": [
+    {
+      "id": "h1",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 24,
+      "oldLines": 6,
+      "newStart": 24,
+      "newLines": 8,
+      "hash": "d997e0d98f88ae59"
+    },
+    {
+      "id": "h2",
+      "file": "README.md",
+      "oldFile": "README.md",
+      "oldStart": 32,
+      "oldLines": 7,
+      "newStart": 34,
+      "newLines": 15,
+      "hash": "46f41937798e4073"
+    },
+    {
+      "id": "h3",
+      "file": "TODO.md",
+      "oldFile": "TODO.md",
+      "oldStart": 12,
+      "oldLines": 3,
+      "newStart": 12,
+      "newLines": 13,
+      "hash": "031245c2285c79f2"
+    },
+    {
+      "id": "h4",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 1,
+      "oldLines": 8,
+      "newStart": 1,
+      "newLines": 9,
+      "hash": "db3d1d0d2b9be2ce"
+    },
+    {
+      "id": "h5",
+      "file": "src/commands/review.ts",
+      "oldFile": "src/commands/review.ts",
+      "oldStart": 174,
+      "oldLines": 14,
+      "newStart": 175,
+      "newLines": 44,
+      "hash": "50ef13476a79dd2a"
+    },
+    {
+      "id": "h6",
+      "file": "src/record.ts",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 66,
+      "hash": "4e5e98f52f411376"
+    },
+    {
+      "id": "h7",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 21,
+      "oldLines": 11,
+      "newStart": 21,
+      "newLines": 40,
+      "hash": "1f1016249eff29e5"
+    },
+    {
+      "id": "h8",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 44,
+      "oldLines": 6,
+      "newStart": 73,
+      "newLines": 8,
+      "hash": "031d93120c109b7f"
+    },
+    {
+      "id": "h9",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 78,
+      "oldLines": 6,
+      "newStart": 109,
+      "newLines": 8,
+      "hash": "6e10aee216aae381"
+    },
+    {
+      "id": "h10",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 112,
+      "oldLines": 6,
+      "newStart": 145,
+      "newLines": 8,
+      "hash": "5f21b71c0e1239bf"
+    },
+    {
+      "id": "h11",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 138,
+      "oldLines": 6,
+      "newStart": 173,
+      "newLines": 8,
+      "hash": "cbfdb1f9fa57ccde"
+    },
+    {
+      "id": "h12",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 165,
+      "oldLines": 6,
+      "newStart": 202,
+      "newLines": 8,
+      "hash": "241394050f8fc6ec"
+    },
+    {
+      "id": "h13",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 174,
+      "oldLines": 7,
+      "newStart": 213,
+      "newLines": 10,
+      "hash": "35d2c9dba14eae9e"
+    },
+    {
+      "id": "h14",
+      "file": "src/stages.ts",
+      "oldFile": "src/stages.ts",
+      "oldStart": 199,
+      "oldLines": 11,
+      "newStart": 241,
+      "newLines": 20,
+      "hash": "b6051c9e36ec1b09"
+    },
+    {
+      "id": "h15",
+      "file": "test/fixtures/block-spec.txt",
+      "oldFile": null,
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 7,
+      "hash": "261c21f6d63d3483"
+    },
+    {
+      "id": "h16",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 1,
+      "oldLines": 12,
+      "newStart": 1,
+      "newLines": 13,
+      "hash": "002b38d10e8e5f54"
+    },
+    {
+      "id": "h17",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 355,
+      "oldLines": 7,
+      "newStart": 356,
+      "newLines": 7,
+      "hash": "bd027f8ab87a6cc3"
+    },
+    {
+      "id": "h18",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 870,
+      "oldLines": 7,
+      "newStart": 871,
+      "newLines": 7,
+      "hash": "9c1e39952a88acdc"
+    },
+    {
+      "id": "h19",
+      "file": "test/gud.test.ts",
+      "oldFile": "test/gud.test.ts",
+      "oldStart": 882,
+      "oldLines": 3,
+      "newStart": 883,
+      "newLines": 236,
+      "hash": "2ba9dd8232c41fbf"
+    }
+  ]
+}
