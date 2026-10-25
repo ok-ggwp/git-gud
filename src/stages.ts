@@ -4,8 +4,12 @@ import { dirname, join } from 'node:path'
 import { SEPARATOR_TEXT as SEPARATOR, type Evidence } from './evidence.ts'
 import { commitMessage, GudError, targetDiff, type Target } from './git.ts'
 
-export const STAGES = ['bugs', 'honesty', 'improve'] as const
+export const STAGES = ['bugs', 'honesty', 'improve', 'adversarial', 'mutate'] as const
 export type Stage = (typeof STAGES)[number]
+// What a bare `review` runs. adversarial and mutate run code and cost more, so they are opt-in.
+export const DEFAULT_STAGES: readonly Stage[] = ['bugs', 'honesty', 'improve']
+// Stages that form their own view of the change: their clone holds no gloss.
+export const BLIND_STAGES: readonly Stage[] = ['bugs', 'adversarial', 'mutate']
 
 // A fence longer than any backtick run in the content, so a markdown file in
 // the diff can't close the block early.
@@ -117,6 +121,59 @@ End your report with one line on its own: \`VERDICT: CLEAN\` if the change is al
 ${material}`
 }
 
+function adversarialPrompt(t: Target): string {
+  return `You are attacking a code change: you must PROVE each defect by making it happen, not argue that it might. You have the change and the repository, without the author's gloss; the commit message, where there is one, is included as the author's statement and is a claim, not a fact. The clone is yours to run things in.
+
+${UNTRUSTED}
+
+Aim at what an attacker or a hostile environment controls: untrusted text rendered to a terminal or a page, notes and data that arrive from remotes, configuration parsing, servers and anything that reads input from outside. For each suspected defect, write a working exploit or a failing test and run it in the clone.
+
+Rules for this stage:
+- Work only in the clone. Never use the network. Delete nothing outside the clone and run no destructive commands.
+- Do not modify tracked source in the clone. The only files you may add are your repro test files and scratch files.
+- Stay inside the time budget of the rules for running things below; a repro you cannot finish is "NOT REPRODUCED".
+
+A finding counts only if you reproduced it. Give each finding as:
+- where (file and line), and severity (major or minor)
+- \`REPRODUCED:\` followed by the exact command you ran and the tail of its real output, copied, not paraphrased
+Anything you could not reproduce is not a finding: list it under a heading "unproven", each as \`NOT REPRODUCED: <what you tried>\`. Never write REPRODUCED for something you did not run.
+
+End your report with one line on its own: \`VERDICT: CLEAN\` if no defect was reproduced, otherwise \`VERDICT: ISSUES\`. It is recorded with the review.
+
+---
+
+# Material under review
+
+${plainMaterial(t)}`
+}
+
+function mutatePrompt(t: Target): string {
+  return `You are checking that the tests in a change can fail: that each would fail if the behaviour it guards broke. You have the change and the repository, without the author's gloss; the commit message, where there is one, is included as the author's statement and is a claim, not a fact.
+
+${UNTRUSTED}
+
+For each NEW or CHANGED test in the diff that guards a high-impact behaviour (security, data loss, input validation, parsing, ordering), do this in the clone:
+1. Pick the one source line the test depends on.
+2. Back the file up first (cp <file> <backup in the scratch directory named in the preamble above this prompt, never inside the clone>), then flip or no-op that line.
+3. Run only that test file and see whether the test goes RED.
+4. Restore the file with cp from the backup and verify the restore with cmp; the file must be byte-identical before you go on.
+
+Rules for this stage:
+- Work only in the clone. Never use the network. Delete nothing outside the clone and run no destructive commands.
+- Run single test files only, never the full suite, within the time budget of the rules for running things below.
+- Report only mutations you actually ran. Never claim a result you did not run; say "could not run" instead.
+
+Report a table with one row per test: test | mutated line | result, where the result is RED, STAYED GREEN = vacuous, or could not run. Under it, for each mutation you ran, give the command and the tail of its real output, and the cmp that showed the restore. A test that stays green is a finding: say where and what it fails to guard.
+
+End your report with one line on its own: \`VERDICT: CLEAN\` if every mutation you ran went RED (or there was no guard test to mutate), otherwise \`VERDICT: ISSUES\`. It is recorded with the review.
+
+---
+
+# Material under review
+
+${plainMaterial(t)}`
+}
+
 const HONESTY = `Honesty means: check the author's claims (intent, removal_impact, evidence, risks, summary) against the diff and against what you can run. Do NOT grade necessity or propose removal candidates by opinion: \`git gloss lint\` covers the mechanical checks. Skip item 2 (Misgraded necessity) and item 3 (Removal candidates) of the list above except where a claim is contradicted by the code. Because items 2 and 3 are skipped, give VERDICT: ISSUES for mismatches, missing risks and (on a branch) the "Across the branch" findings; never for necessity grading alone (items 2 and 3).`
 
 const RULES = `## Rules for running things
@@ -144,7 +201,8 @@ export function insertBeforeMaterial(prompt: string, text: string): string {
 
 // The prompt for one stage. The honesty prompt is git-gloss's own.
 export function stagePrompt(stage: Stage, t: Target, repo: string, opts: { max: number; evidence?: Evidence[] }): string {
-  const prompt = stage === 'bugs' ? bugsPrompt(t) : stage === 'improve' ? improvePrompt(t, repo, opts.max) : gloss(['review', t.rev], repo)
+  const prompt = stage === 'bugs' ? bugsPrompt(t) : stage === 'adversarial' ? adversarialPrompt(t) : stage === 'mutate' ? mutatePrompt(t)
+    : stage === 'improve' ? improvePrompt(t, repo, opts.max) : gloss(['review', t.rev], repo)
   // git-gloss's honesty prompt can't be edited, so these are inserted into it.
   const parts = [RULES, stage === 'honesty' ? HONESTY : '', opts.evidence?.length ? evidenceSection(opts.evidence) : '']
   return insertBeforeMaterial(prompt, parts.filter(Boolean).join('\n\n'))

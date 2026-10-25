@@ -10,3 +10,5 @@ Written 2026-10-25, from the reviews of `--evidence`. Remove an item when it shi
 - [ ] `--timeout`: output still streaming from an escaped process after the 2 s grace is cut, and the run is reported ok.
 - [ ] SIGHUP/SIGQUIT now dispose the workspaces and exit 129/131 for every run, timed or not; the exit codes are untested for untimed runs.
 - [ ] `--timeout`: a stuck `ws.dispose()` leaves a detached timed reviewer running until git-gud itself is killed (README should say so).
+- [ ] `adversarial` and `mutate` rules (no network, restore with cmp) are prompt instructions only, not enforced (`--sandbox` is the real control, and both stages run repository code); git-gud does not check the clone is restored or that the report's REPRODUCED lines were really run. A post-run `git status` of the clone could flag edits to tracked files.
+- [ ] git-gloss's review summaries (`git gloss show`) have no stage-specific wording for `adversarial` and `mutate`; they show the generic verdict phrase.
